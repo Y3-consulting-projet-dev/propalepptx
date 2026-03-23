@@ -1,31 +1,28 @@
+
 <script setup>
-import { onMounted, ref } from 'vue'
-import { getHealth } from './api.js'
+import { ref, onMounted } from 'vue'
+import Login from './components/Login.vue'
+import Dashboard from './components/Dashboard.vue'
+import { isLoggedIn } from './api.js'
 
-const status = ref('loading')
-const message = ref('')
-const error = ref('')
+const isAuthenticated = ref(false)
 
-onMounted(async () => {
-  try {
-    const data = await getHealth()
-    status.value = data.status || 'ok'
-    message.value = data.message || ''
-  } catch (err) {
-    error.value = err.message
-    status.value = 'error'
-  }
+const checkAuth = () => {
+  isAuthenticated.value = isLoggedIn()
+}
+
+onMounted(() => {
+  checkAuth()
+  // Listen for storage changes (logout from other tabs)
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'access_token') {
+      checkAuth()
+    }
+  })
 })
 </script>
 
 <template>
-  <main class="page">
-    <section class="card">
-      <h1>Frontend ↔ Backend</h1>
-      <p class="label">Flask API status</p>
-      <p class="status" :data-status="status">{{ status }}</p>
-      <p v-if="message" class="message">{{ message }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
-    </section>
-  </main>
+  <Login v-if="!isAuthenticated" @login="checkAuth" />
+  <Dashboard v-else @logout="checkAuth" />
 </template>
