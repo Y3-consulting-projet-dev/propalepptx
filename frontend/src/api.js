@@ -90,6 +90,44 @@ export async function generateProposal(title, content) {
   return res.json()
 }
 
+export async function createElement(name, value = null, metadata = {}) {
+  const res = await fetch(`${API_BASE}/elements`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders()
+    },
+    body: JSON.stringify({ name, value, metadata })
+  })
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('access_token')
+      throw new Error('Session expired. Please login again.')
+    }
+    const error = await res.json()
+    throw new Error(error.error || 'Element creation failed')
+  }
+
+  return res.json()
+}
+
+export async function getElements() {
+  const res = await fetch(`${API_BASE}/elements`, {
+    headers: getAuthHeaders()
+  })
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('access_token')
+      throw new Error('Session expired. Please login again.')
+    }
+    throw new Error(`API error: ${res.status}`)
+  }
+
+  return res.json()
+}
+
 export function logout() {
   localStorage.removeItem('access_token')
 }

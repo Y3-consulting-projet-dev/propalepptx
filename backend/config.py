@@ -9,7 +9,7 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', '1') == '1'
 
     # MongoDB Configuration
-    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/propalepptx')
+    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://127.0.0.1:27017/propalepptx')
 
     # JWT Configuration
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'your-secret-key-here')
