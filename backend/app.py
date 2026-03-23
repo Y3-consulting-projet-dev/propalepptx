@@ -3,9 +3,10 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 from pptx import Presentation
 from config import Config
-from models import User, Proposal
+from models import User, Proposal, Element
 import io
 import os
+import re
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -17,6 +18,26 @@ jwt = JWTManager(app)
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+
+def validate_password_strength(password):
+    if len(password) < 8:
+        return "Password must contain at least 8 characters"
+    if not re.search(r"[A-Z]", password):
+        return "Password must contain at least one uppercase letter"
+    if not re.search(r"[a-z]", password):
+        return "Password must contain at least one lowercase letter"
+    if not re.search(r"\d", password):
+        return "Password must contain at least one number"
+    if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password):
+        return "Password must contain at least one special character"
+    return None
+
+
+def normalize_email(email):
+    if email is None:
+        return None
+    return str(email).strip().lower()
 
 @app.route("/api/health")
 def health():
@@ -35,9 +56,13 @@ def register():
     if not data or not data.get('email') or not data.get('password'):
         return jsonify({"error": "Email and password are required"}), 400
 
-    email = data['email']
+    email = normalize_email(data['email'])
     password = data['password']
     name = data.get('name')
+
+    password_error = validate_password_strength(password)
+    if password_error:
+        return jsonify({"error": password_error}), 400
 
     # Check if user already exists
     if User.find_by_email(email):
@@ -60,7 +85,7 @@ def login():
     if not data or not data.get('email') or not data.get('password'):
         return jsonify({"error": "Email and password are required"}), 400
 
-    email = data['email']
+    email = normalize_email(data['email'])
     password = data['password']
 
     user = User.find_by_email(email)
@@ -150,8 +175,39 @@ def download_file(filename):
     return jsonify({"error": "File not found"}), 404
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+@app.route("/api/elements", methods=["POST"])
+@jwt_required()
+def create_element():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    if not data or not data.get('name'):
+        return jsonify({"error": "name is required"}), 400
+
+    element_id = Element.create_element(
+        user_id=user_id,
+        name=data['name'],
+        value=data.get('value'),
+        metadata=data.get('metadata')
+    )
+
+    return jsonify({
+        "message": "Element created successfully",
+        "element_id": element_id
+    }), 201
+
+
+@app.route("/api/elements", methods=["GET"])
+@jwt_required()
+def get_elements():
+    user_id = get_jwt_identity()
+    elements = Element.find_by_user(user_id)
+
+    for element in elements:
+        element['_id'] = str(element['_id'])
+        element['user_id'] = str(element['user_id'])
+
+    return jsonify({"elements": elements}), 200
 
 
 if __name__ == "__main__":

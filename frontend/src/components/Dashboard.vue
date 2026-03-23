@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getProposals, generateProposal, logout } from './api.js'
+import { getProposals, generateProposal, logout } from '../api.js'
 
 const proposals = ref([])
 const loading = ref(false)

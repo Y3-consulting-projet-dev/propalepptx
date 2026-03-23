@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { loginUser, registerUser } from './api.js'
+import { loginUser, registerUser } from '../api.js'
 
 const email = ref('')
 const password = ref('')
@@ -8,6 +8,7 @@ const name = ref('')
 const loading = ref(false)
 const isRegistering = ref(false)
 const error = ref('')
+const showPassword = ref(false)
 
 const handleSubmit = async () => {
   if (!email.value || !password.value) {
@@ -40,9 +41,8 @@ const handleSubmit = async () => {
   }
 }
 
-const toggleMode = () => {
-  isRegistering.value = !isRegistering.value
-  error.value = ''
+const togglePasswordVisibility = () => {
+  showPassword.value = !showPassword.value
 }
 </script>
 
@@ -92,13 +92,32 @@ const toggleMode = () => {
 
           <div class="form-group">
             <label for="password">MOT DE PASSE</label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              placeholder="MOT DE PASSE"
-              required
-            >
+            <div class="password-wrapper">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                placeholder="MOT DE PASSE"
+                required
+              >
+              <button
+                type="button"
+                class="toggle-password-btn"
+                @click="togglePasswordVisibility"
+                :aria-label="showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'"
+              >
+                <svg v-if="!showPassword" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 3l18 18" />
+                  <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+                  <path d="M9.9 5.2A11.4 11.4 0 0 1 12 5c6.5 0 10 7 10 7a18.7 18.7 0 0 1-4.3 5" />
+                  <path d="M6.2 6.2A18.8 18.8 0 0 0 2 12s3.5 7 10 7a11.3 11.3 0 0 0 5-1.1" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <button class="login-btn" @click="handleSubmit" :disabled="loading">
@@ -106,12 +125,6 @@ const toggleMode = () => {
           </button>
         </form>
 
-        <div class="toggle-section">
-          <span>{{ isRegistering ? 'Déjà un compte ?' : 'Pas encore de compte ?' }}</span>
-          <button type="button" @click="toggleMode" class="link-btn">
-            {{ isRegistering ? 'Se connecter' : 'S\'inscrire' }}
-          </button>
-        </div>
       </div>
     </div>
   </div>
@@ -236,6 +249,43 @@ const toggleMode = () => {
   background: #fafafa;
 }
 
+.password-wrapper {
+  position: relative;
+}
+
+.password-wrapper input {
+  padding-right: 48px;
+}
+
+.toggle-password-btn {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #7ec33b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.toggle-password-btn:hover {
+  color: #6ab32f;
+}
+
+.toggle-password-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .login-btn {
   width: 100%;
   padding: 14px;
@@ -262,16 +312,7 @@ const toggleMode = () => {
   cursor: not-allowed;
 }
 
-.toggle-section {
-  text-align: center;
-  font-size: 14px;
-  color: #666;
-  margin-top: 24px;
-}
-
-.toggle-section .link-btn {
-  margin-left: 4px;
-}
+@media (max-width: 768px) {
   .login-container {
     flex-direction: column;
   }
