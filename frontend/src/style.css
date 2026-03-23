@@ -1,0 +1,97 @@
+﻿:root {
+  --bg: #f7f4ef;
+  --card: #ffffff;
+  --ink: #1c1b18;
+  --muted: #6a645d;
+  --accent: #2d6a4f;
+  --accent-weak: rgba(45, 106, 79, 0.12);
+  --border: #e7e1d9;
+  --shadow: 0 20px 45px rgba(28, 27, 24, 0.08);
+
+  font-family: "Alegreya Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #ffffff 0%, #f7f4ef 55%, #f1ebe3 100%);
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+}
+
+.page {
+  width: min(720px, 92vw);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 36px;
+  box-shadow: var(--shadow);
+}
+
+h1 {
+  font-size: 36px;
+  margin: 0 0 16px;
+  letter-spacing: -0.6px;
+}
+
+.label {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 1.6px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.status {
+  display: inline-flex;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 1px;
+  border: 1px solid transparent;
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.status[data-status='error'] {
+  color: #a30d2d;
+  background: rgba(163, 13, 45, 0.12);
+}
+
+.message,
+.error {
+  margin-top: 14px;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.error {
+  color: #a30d2d;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 28px 22px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+}
