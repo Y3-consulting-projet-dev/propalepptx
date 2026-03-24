@@ -1,10 +1,34 @@
 ﻿<script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import DashboardHome from './components/DashboardHome.vue'
 import PresentationsView from './components/PresentationsView.vue'
 import LibraryView from './components/LibraryView.vue'
 import NewPresentationView from './components/NewPresentationView.vue'
 import SectionPlaceholder from './components/SectionPlaceholder.vue'
+import Login from './components/Login.vue'
+import { isLoggedIn, logout, getCurrentUser } from './api.js'
+
+const isAuthenticated = ref(false)
+const currentUser = ref(null)
+
+const checkAuth = () => {
+  isAuthenticated.value = isLoggedIn()
+  currentUser.value = getCurrentUser()
+}
+
+const handleLogout = () => {
+  logout()
+  checkAuth()
+}
+
+onMounted(() => {
+  checkAuth()
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'access_token') {
+      checkAuth()
+    }
+  })
+})
 
 const sections = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -50,7 +74,9 @@ const activeComponent = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-25">
+  <Login v-if="!isAuthenticated" @login="checkAuth" />
+
+  <div v-else class="min-h-screen bg-slate-25">
     <div class="grid min-h-screen grid-cols-[260px_1fr] bg-white">
       <aside class="relative flex flex-col gap-10 border-r border-slate-200/70 px-6 py-8 pt-44">
         <div class="absolute left-0 top-0 flex items-center gap-3">
@@ -80,7 +106,10 @@ const activeComponent = computed(() => {
           </button>
         </nav>
 
-        <button class="mt-auto flex items-center justify-center gap-3 rounded-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
+        <button
+          class="mt-auto flex items-center justify-center gap-3 rounded-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+          @click="handleLogout"
+        >
           Déconnexion
         </button>
       </aside>
@@ -89,6 +118,7 @@ const activeComponent = computed(() => {
         <component
           :is="activeComponent.component ?? activeComponent"
           v-bind="activeComponent.props ?? {}"
+          :user="currentUser"
           @new-presentation="openNewPresentation"
           @back="goBack"
         />
