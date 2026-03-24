@@ -21,7 +21,7 @@ const activeCard = ref(null)
 
 // Preview state
 const slides = ref([])
-const slideMode = ref(null)       // 'images' | 'text'
+const slideMode = ref(null)
 const currentSlide = ref(0)
 const previewLoading = ref(false)
 const previewError = ref(null)
@@ -93,7 +93,6 @@ function useFallback() {
 function prev() { if (currentSlide.value > 0) currentSlide.value-- }
 function next() { if (currentSlide.value < slides.value.length - 1) currentSlide.value++ }
 
-// Keyboard navigation
 function onKeyDown(e) {
   if (!isOpen.value) return
   if (e.key === 'ArrowRight') next()
@@ -150,12 +149,13 @@ onMounted(() => window.addEventListener('keydown', onKeyDown))
     <div v-else-if="error" class="mt-10 text-sm text-red-600">{{ error }}</div>
 
     <div v-else class="mt-8 grid gap-6 lg:grid-cols-3">
+      <!-- ✅ CORRECTION : ajout de flex flex-col -->
       <article
         v-for="card in cards.filter((c) =>
           c.title.toLowerCase().includes(searchQuery.toLowerCase())
         )"
         :key="card.id"
-        class="card overflow-hidden"
+        class="card overflow-hidden flex flex-col"
       >
         <div class="px-5 py-4">
           <p class="text-sm font-semibold text-slate-900">{{ card.title }}</p>
@@ -164,7 +164,8 @@ onMounted(() => window.addEventListener('keydown', onKeyDown))
           </p>
           <p class="mt-2 text-xs text-slate-500">Utilisé {{ card.used }} fois</p>
         </div>
-        <div class="border-t border-slate-100 px-5 py-4">
+        <!-- ✅ CORRECTION : ajout de mt-auto pour coller le footer en bas -->
+        <div class="border-t border-slate-100 px-5 py-4 mt-auto">
           <div class="flex items-center justify-between">
             <button class="rounded-full bg-brand-500 px-4 py-1.5 text-xs font-semibold text-white">
               Utiliser
