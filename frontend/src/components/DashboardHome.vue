@@ -1,5 +1,20 @@
-<script setup>
+﻿<script setup>
+const props = defineProps({
+  user: {
+    type: Object,
+    default: null,
+  },
+})
+
 const emit = defineEmits(['new-presentation'])
+
+const initials = (user) => {
+  const first = (user?.first_name || '').trim()
+  const last = (user?.last_name || '').trim()
+  const a = first ? first[0] : ''
+  const b = last ? last[0] : ''
+  return (a + b).toUpperCase() || 'U'
+}
 const stats = [
   { value: '47', label: 'Présentations générées', badge: 'P' },
   { value: '50h', label: 'Temps économisé ce mois', badge: 'T' },
@@ -23,10 +38,12 @@ const activities = [
   <div>
     <header class="flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="h-12 w-12 rounded-full bg-slate-200"></div>
+        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+          {{ initials(props.user) }}
+        </div>
         <div>
-          <p class="text-sm font-semibold text-slate-900">Yves DODO</p>
-          <p class="text-xs text-slate-500">Associé</p>
+          <p class="text-sm font-semibold text-slate-900">{{ props.user?.name }}</p>
+          <p class="text-xs text-slate-500">{{ props.user?.grade }}</p>
         </div>
       </div>
       <div class="flex items-center gap-4">
