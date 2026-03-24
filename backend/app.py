@@ -1,46 +1,55 @@
+import io
 import os
+import re
+import uuid
 import base64
 import glob
+import json
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from pymongo import MongoClient, UpdateOne
-from pptx import Presentation
 from pptx.util import Inches
-import subprocess
-import shutil
-from dotenv import load_dotenv
+import anthropic
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
+from pymongo import MongoClient, UpdateOne
+from pptx import Presentation
+from dotenv import load_dotenv
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 from config import Config
 from models import User, Proposal, Element
-import io
-import re
 
 load_dotenv()
 
 app = Flask(__name__)
 app.config.from_object(Config)
+CORS(app)
+jwt = JWTManager(app)
 
-# Use the same MongoDB URI as the rest of the app (users, templates, etc.)
+# ─────────────────────────────────────────────
+# Config
+# ─────────────────────────────────────────────
+
 MONGO_URI = os.getenv("MONGO_URI", Config.MONGO_URI)
 LIBRARY_DIR = os.getenv("LIBRARY_DIR", str(Path(__file__).resolve().parents[1] / "Propale_library"))
 CACHE_DIR = os.getenv("CACHE_DIR", str(Path(__file__).resolve().parents[1] / "Propale_cache"))
-LIBREOFFICE_PATH = os.getenv("LIBREOFFICE_PATH", "")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", str(Path(__file__).resolve().parents[1] / "Propale_output"))
+LIBREOFFICE_PATH  = os.getenv("LIBREOFFICE_PATH",  "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-client = MongoClient(MONGO_URI)
-db = client.get_default_database()
-templates_col = db["templates"]
+mongo_client      = MongoClient(MONGO_URI)
+db                = mongo_client.get_default_database()
+templates_col     = db["templates"]
+presentations_col = db["presentations"]
 
-cache_path = Path(CACHE_DIR)
+cache_path  = Path(CACHE_DIR)
+output_path = Path(OUTPUT_DIR)
 cache_path.mkdir(parents=True, exist_ok=True)
+output_path.mkdir(parents=True, exist_ok=True)
 
+ai = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# ─────────────────────────────────────────────
-# Routes
-# ─────────────────────────────────────────────
-CORS(app)
-jwt = JWTManager(app)
 
 # Ensure uploads directory exists
 UPLOAD_FOLDER = 'uploads'
@@ -67,331 +76,7 @@ def normalize_email(email):
         return None
     return str(email).strip().lower()
 
-@app.route("/api/health")
-def health():
-    soffice = find_soffice()
-    return jsonify({
-        "status": "ok",
-        "message": "Backend is running",
-        "libreoffice": soffice or "not found",
-        "pdftoppm": shutil.which("pdftoppm") or "not found",
-    })
 
-
-@app.route("/")
-def root():
-    return jsonify({"message": "Welcome to the Flask API"})
-
-
-# ─────────────────────────────────────────────
-# LibreOffice detection (robust cross-platform)
-# ─────────────────────────────────────────────
-
-def find_soffice() -> str | None:
-    """
-    Locate the LibreOffice `soffice` executable.
-    Checks (in order):
-      1. LIBREOFFICE_PATH env var
-      2. PATH (shutil.which)
-      3. Common Windows install locations
-      4. Common Linux/macOS install locations
-    Returns the path string if found, else None.
-    """
-    # 1. Explicit env var
-    if LIBREOFFICE_PATH and Path(LIBREOFFICE_PATH).exists():
-        return LIBREOFFICE_PATH
-
-    # 2. PATH
-    found = shutil.which("soffice")
-    if found:
-        return found
-
-    # 3. Windows candidates
-    windows_candidates = [
-        r"C:\Program Files\LibreOffice\program\soffice.exe",
-        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-        r"C:\Program Files\LibreOffice 7\program\soffice.exe",
-        r"C:\Program Files\LibreOffice 6\program\soffice.exe",
-        # Dynamic: scan Program Files for any LibreOffice version
-        *glob.glob(r"C:\Program Files\LibreOffice*\program\soffice.exe"),
-        *glob.glob(r"C:\Program Files (x86)\LibreOffice*\program\soffice.exe"),
-    ]
-    for c in windows_candidates:
-        if c and Path(c).exists():
-            return c
-
-    # 4. Linux / macOS candidates
-    unix_candidates = [
-        "/usr/bin/soffice",
-        "/usr/local/bin/soffice",
-        "/opt/libreoffice/program/soffice",
-        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-        *glob.glob("/opt/libreoffice*/program/soffice"),
-    ]
-    for c in unix_candidates:
-        if c and Path(c).exists():
-            return c
-
-    return None
-
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
-
-def get_slide_count(file_path: Path) -> int:
-    try:
-        prs = Presentation(str(file_path))
-        return len(prs.slides)
-    except Exception:
-        return 0
-
-
-def ensure_pdf(file_path: Path) -> Path:
-    """Convert a PPTX to PDF using LibreOffice. Caches the result."""
-    pdf_path = cache_path / f"{file_path.stem}.pdf"
-    if pdf_path.exists():
-        return pdf_path
-
-    soffice = find_soffice()
-    if not soffice:
-        raise RuntimeError(
-            "LibreOffice (soffice) not found. "
-            "Install LibreOffice and set LIBREOFFICE_PATH in your .env, "
-            "or add soffice to your PATH."
-        )
-
-    subprocess.run(
-        [
-            soffice,
-            "--headless",
-            "--convert-to", "pdf",
-            "--outdir", str(cache_path),
-            str(file_path),
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return pdf_path
-
-
-def pdf_to_slide_images(pdf_path: Path, stem: str) -> list[str]:
-    """
-    Convert a PDF to a list of base64-encoded PNG images (one per slide).
-    Uses pdftoppm (Poppler). Falls back to PyMuPDF (fitz) if available.
-    Returns a list of base64 strings.
-    """
-    output_prefix = cache_path / f"{stem}_slide"
-    images_b64 = []
-
-    # ── Try pdftoppm (Poppler) ──
-    pdftoppm = shutil.which("pdftoppm")
-    if pdftoppm:
-        subprocess.run(
-            [pdftoppm, "-png", "-r", "120", str(pdf_path), str(output_prefix)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        image_files = sorted(cache_path.glob(f"{stem}_slide-*.png"))
-        for img_file in image_files:
-            images_b64.append(base64.b64encode(img_file.read_bytes()).decode())
-        return images_b64
-
-    # ── Try PyMuPDF (fitz) ──
-    try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(str(pdf_path))
-        for page in doc:
-            mat = fitz.Matrix(1.5, 1.5)  # ~108 DPI
-            pix = page.get_pixmap(matrix=mat)
-            images_b64.append(base64.b64encode(pix.tobytes("png")).decode())
-        return images_b64
-    except ImportError:
-        pass
-
-    raise RuntimeError(
-        "No image converter found. "
-        "Install Poppler (pdftoppm) or PyMuPDF (`pip install pymupdf`)."
-    )
-
-
-def get_slide_thumbnails_fallback(file_path: Path) -> list[dict]:
-    """
-    Pure python-pptx fallback: extract slide text & embedded images.
-    Used when LibreOffice / Poppler are unavailable.
-    Returns a list of dicts with 'index', 'title', 'text', 'image' (base64 or None).
-    """
-    prs = Presentation(str(file_path))
-    slides_data = []
-    for i, slide in enumerate(prs.slides):
-        title = ""
-        texts = []
-        first_image_b64 = None
-
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                t = shape.text_frame.text.strip()
-                if t:
-                    if not title and shape.shape_type == 13 or (hasattr(shape, "placeholder_format") and shape.placeholder_format and shape.placeholder_format.idx == 0):
-                        title = t
-                    else:
-                        texts.append(t)
-            # Extract first embedded image
-            if first_image_b64 is None and shape.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
-                try:
-                    img_bytes = shape.image.blob
-                    first_image_b64 = base64.b64encode(img_bytes).decode()
-                except Exception:
-                    pass
-
-        slides_data.append({
-            "index": i + 1,
-            "title": title,
-            "text": "\n".join(texts),
-            "image": first_image_b64,
-            "image_type": "embedded",
-        })
-
-    return slides_data
-
-
-# ─────────────────────────────────────────────
-# Library scanning
-# ─────────────────────────────────────────────
-
-def scan_library():
-    library_path = Path(LIBRARY_DIR)
-    if not library_path.exists():
-        return 0
-
-    files = list(library_path.glob("*.pptx"))
-    ops = []
-    now = datetime.utcnow()
-    for file in files:
-        slide_count = get_slide_count(file)
-        ops.append(
-            UpdateOne(
-                {"filename": file.name},
-                {
-                    "$set": {
-                        "filename": file.name,
-                        "path": str(file),
-                        "size": file.stat().st_size,
-                        "slide_count": slide_count,
-                        "updated_at": now,
-                    },
-                    "$setOnInsert": {"created_at": now},
-                },
-                upsert=True,
-            )
-        )
-    if ops:
-        templates_col.bulk_write(ops)
-    return len(files)
-
-
-@app.route("/api/templates", methods=["GET"])
-def list_templates():
-    if request.args.get("scan") == "1":
-        scan_library()
-    docs = list(templates_col.find({}, {"_id": 0}).sort("filename", 1))
-    return jsonify({"items": docs})
-
-
-@app.route("/api/templates/scan", methods=["POST"])
-def scan_templates():
-    count = scan_library()
-    return jsonify({"count": count})
-
-
-@app.route("/api/templates/<path:filename>/pdf", methods=["GET"])
-def template_pdf(filename: str):
-    file_path = Path(LIBRARY_DIR) / filename
-    if not file_path.exists():
-        return jsonify({"error": "File not found"}), 404
-    try:
-        pdf_path = ensure_pdf(file_path)
-        if not pdf_path.exists():
-            return jsonify({"error": "PDF conversion failed"}), 500
-        return send_file(pdf_path, mimetype="application/pdf")
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/templates/<path:filename>/slides", methods=["GET"])
-def template_slides(filename: str):
-    """
-    Returns slide previews for a PPTX file.
-
-    Query params:
-      - mode: "images" (default) or "text"
-          "images" → renders each slide as a PNG via LibreOffice + pdftoppm/PyMuPDF
-          "text"   → returns extracted text + embedded images (no LibreOffice needed)
-
-    Response (mode=images):
-      {
-        "filename": "...",
-        "slide_count": N,
-        "mode": "images",
-        "slides": ["<base64 PNG>", ...]
-      }
-
-    Response (mode=text):
-      {
-        "filename": "...",
-        "slide_count": N,
-        "mode": "text",
-        "slides": [{ "index": 1, "title": "...", "text": "...", "image": "<base64>|null" }, ...]
-      }
-    """
-    file_path = Path(LIBRARY_DIR) / filename
-    if not file_path.exists():
-        return jsonify({"error": "File not found"}), 404
-
-    mode = request.args.get("mode", "images")
-
-    # ── Text / fallback mode ──
-    if mode == "text":
-        try:
-            slides_data = get_slide_thumbnails_fallback(file_path)
-            return jsonify({
-                "filename": filename,
-                "slide_count": len(slides_data),
-                "mode": "text",
-                "slides": slides_data,
-            })
-        except Exception as exc:
-            return jsonify({"error": str(exc)}), 500
-
-    # ── Image mode (default) ──
-    try:
-        # Check if images already cached
-        existing = sorted(cache_path.glob(f"{file_path.stem}_slide-*.png"))
-        if existing:
-            images_b64 = [base64.b64encode(p.read_bytes()).decode() for p in existing]
-        else:
-            pdf_path = ensure_pdf(file_path)
-            images_b64 = pdf_to_slide_images(pdf_path, file_path.stem)
-
-        return jsonify({
-            "filename": filename,
-            "slide_count": len(images_b64),
-            "mode": "images",
-            "slides": images_b64,
-        })
-
-    except RuntimeError as exc:
-        # LibreOffice or converter not found → suggest fallback
-        return jsonify({
-            "error": str(exc),
-            "fallback_url": f"/api/templates/{filename}/slides?mode=text",
-            "hint": "Use ?mode=text for a no-dependency text preview.",
-        }), 503
-
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     data = request.get_json()
@@ -449,112 +134,498 @@ def login():
         }
     }), 200
 
+# ─────────────────────────────────────────────
+# LibreOffice detection
+# ─────────────────────────────────────────────
 
-@app.route("/api/proposals", methods=["GET"])
-@jwt_required()
-def get_proposals():
-    user_id = get_jwt_identity()
-    proposals = Proposal.find_by_user(user_id)
-
-    # Convert ObjectId to string for JSON serialization
-    for proposal in proposals:
-        proposal['_id'] = str(proposal['_id'])
-        proposal['user_id'] = str(proposal['user_id'])
-
-    return jsonify({"proposals": proposals}), 200
-
-
-@app.route("/api/generate_proposal", methods=["POST"])
-@jwt_required()
-def generate_proposal():
-    user_id = get_jwt_identity()
-    data = request.get_json()
-
-    if not data or not data.get('title') or not data.get('content'):
-        return jsonify({"error": "Title and content are required"}), 400
-
-    title = data['title']
-    content = data['content']
-
-    # Save proposal to database
-    proposal_id = Proposal.create_proposal(user_id, title, content)
-
-    # Create PowerPoint
-    prs = Presentation()
-
-    # Title slide
-    title_slide_layout = prs.slide_layouts[0]
-    slide = prs.slides.add_slide(title_slide_layout)
-    title_placeholder = slide.shapes.title
-    title_placeholder.text = title
-
-    # Content slide
-    bullet_slide_layout = prs.slide_layouts[1]
-    slide = prs.slides.add_slide(bullet_slide_layout)
-    shapes = slide.shapes
-    title_shape = shapes.title
-    title_shape.text = "Détails de la Proposition"
-    body_shape = shapes.placeholders[1]
-    tf = body_shape.text_frame
-    tf.text = content
-
-    # Save to file
-    filename = f"proposal_{proposal_id}.pptx"
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    prs.save(filepath)
-
-    # Update proposal with file URL
-    pptx_url = f"/api/download/{filename}"
-    Proposal.update_pptx_url(proposal_id, pptx_url)
-
-    return jsonify({
-        "message": "Proposal generated successfully",
-        "proposal_id": proposal_id,
-        "download_url": pptx_url
-    }), 201
+def find_soffice() -> str | None:
+    if LIBREOFFICE_PATH and Path(LIBREOFFICE_PATH).exists():
+        return LIBREOFFICE_PATH
+    found = shutil.which("soffice")
+    if found:
+        return found
+    for c in [
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        *glob.glob(r"C:\Program Files\LibreOffice*\program\soffice.exe"),
+        "/usr/bin/soffice",
+        "/usr/local/bin/soffice",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        *glob.glob("/opt/libreoffice*/program/soffice"),
+    ]:
+        if c and Path(c).exists():
+            return c
+    return None
 
 
-@app.route("/api/download/<filename>")
-def download_file(filename):
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True, download_name=filename)
-    return jsonify({"error": "File not found"}), 404
+# ─────────────────────────────────────────────
+# PPTX helpers
+# ─────────────────────────────────────────────
+
+def get_slide_count(file_path: Path) -> int:
+    try:
+        return len(Presentation(str(file_path)).slides)
+    except Exception:
+        return 0
 
 
-@app.route("/api/elements", methods=["POST"])
-@jwt_required()
-def create_element():
-    user_id = get_jwt_identity()
-    data = request.get_json()
+def extract_slides_text(file_path: Path) -> list[dict]:
+    """
+    Extract every text shape from a PPTX.
+    Returns a list usable both as Claude input and as injection blueprint.
+    """
+    prs = Presentation(str(file_path))
+    result = []
+    for slide_idx, slide in enumerate(prs.slides):
+        shapes_data = []
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            texts = [p.text for p in shape.text_frame.paragraphs]
+            if not any(t.strip() for t in texts):
+                continue
+            ph_idx = None
+            try:
+                if shape.is_placeholder:
+                    ph_idx = shape.placeholder_format.idx
+            except Exception:
+                ph_idx = None
+            shapes_data.append({
+                "shape_id":        shape.shape_id,
+                "shape_name":      shape.name,
+                "placeholder_idx": ph_idx,
+                "texts":           texts,
+            })
+        result.append({"slide_index": slide_idx, "shapes": shapes_data})
+    return result
 
-    if not data or not data.get('name'):
-        return jsonify({"error": "name is required"}), 400
 
-    element_id = Element.create_element(
-        user_id=user_id,
-        name=data['name'],
-        value=data.get('value'),
-        metadata=data.get('metadata')
+def inject_content_into_pptx(template_path: Path, content: list[dict], out_file: Path):
+    """
+    Copy template and replace paragraph texts while preserving all formatting.
+    `content` has the same shape as extract_slides_text() output.
+    """
+    prs = Presentation(str(template_path))
+
+    # Build lookup (slide_index, shape_id) → list of new paragraph strings
+    lookup: dict[tuple, list[str]] = {}
+    for slide_data in content:
+        for shape_data in slide_data["shapes"]:
+            lookup[(slide_data["slide_index"], shape_data["shape_id"])] = shape_data["texts"]
+
+    for slide_idx, slide in enumerate(prs.slides):
+        for shape in slide.shapes:
+            new_texts = lookup.get((slide_idx, shape.shape_id))
+            if new_texts is None or not shape.has_text_frame:
+                continue
+            for para_idx, para in enumerate(shape.text_frame.paragraphs):
+                new_text = new_texts[para_idx] if para_idx < len(new_texts) else ""
+                if para.runs:
+                    para.runs[0].text = new_text
+                    for run in para.runs[1:]:
+                        run.text = ""
+
+    prs.save(str(out_file))
+
+
+def ensure_pdf(file_path: Path, stem: str | None = None) -> Path:
+    stem = stem or file_path.stem
+    pdf_path = cache_path / f"{stem}.pdf"
+    if pdf_path.exists():
+        return pdf_path
+    soffice = find_soffice()
+    if not soffice:
+        raise RuntimeError("LibreOffice not found. Install it or set LIBREOFFICE_PATH.")
+    # soffice names the output after the input file stem — use a symlink trick
+    tmp = cache_path / f"{stem}.pptx"
+    if str(tmp) != str(file_path):
+        shutil.copy2(str(file_path), str(tmp))
+    subprocess.run(
+        [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(cache_path), str(tmp)],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    return pdf_path
+
+
+def pdf_to_images(pdf_path: Path, stem: str) -> list[str]:
+    prefix = cache_path / f"{stem}_slide"
+    pdftoppm = shutil.which("pdftoppm")
+    if pdftoppm:
+        subprocess.run(
+            [pdftoppm, "-png", "-r", "120", str(pdf_path), str(prefix)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return [base64.b64encode(p.read_bytes()).decode()
+                for p in sorted(cache_path.glob(f"{stem}_slide-*.png"))]
+    try:
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        return [base64.b64encode(page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5)).tobytes("png")).decode()
+                for page in doc]
+    except ImportError:
+        pass
+    raise RuntimeError("Install poppler-utils (pdftoppm) or pymupdf.")
+
+
+def slides_to_images(pptx_path: Path, stem: str) -> list[str]:
+    existing = sorted(cache_path.glob(f"{stem}_slide-*.png"))
+    if existing:
+        return [base64.b64encode(p.read_bytes()).decode() for p in existing]
+    return pdf_to_images(ensure_pdf(pptx_path, stem=stem), stem)
+
+
+def slides_fallback_text(file_path: Path) -> list[dict]:
+    prs = Presentation(str(file_path))
+    out = []
+    for i, slide in enumerate(prs.slides):
+        title, texts, img = "", [], None
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                t = shape.text_frame.text.strip()
+                if t:
+                    ph = getattr(shape, "placeholder_format", None)
+                    if not title and ph and ph.idx == 0:
+                        title = t
+                    else:
+                        texts.append(t)
+            if img is None and shape.shape_type == 13:
+                try:
+                    img = base64.b64encode(shape.image.blob).decode()
+                except Exception:
+                    pass
+        out.append({"index": i + 1, "title": title, "text": "\n".join(texts), "image": img})
+    return out
+
+
+def invalidate_image_cache(stem: str):
+    for f in cache_path.glob(f"{stem}_slide-*.png"):
+        f.unlink(missing_ok=True)
+    (cache_path / f"{stem}.pdf").unlink(missing_ok=True)
+
+
+# ─────────────────────────────────────────────
+# Claude AI — content generation
+# ─────────────────────────────────────────────
+
+SYSTEM_PROMPT = """Tu es un expert en rédaction de propositions commerciales et présentations professionnelles pour des cabinets d'audit et de conseil en Afrique francophone.
+
+Tu reçois :
+1. La structure d'un fichier PPTX (slides + shapes avec leurs textes actuels)
+2. Les informations du formulaire remplies par l'utilisateur
+
+Règles STRICTES :
+- Remplace les textes génériques/placeholders par du vrai contenu professionnel personnalisé
+- Garde EXACTEMENT le même nombre d'éléments dans chaque tableau "texts" (même nombre de paragraphes)
+- Utilise les informations du formulaire pour tout personnaliser (client, secteur, mission, etc.)
+- Rédige en français professionnel, concis
+- Titres courts (1 ligne max), bullets concis (1-2 phrases)
+- Ne modifie PAS les numéros de page, logos texte, ni les textes purement décoratifs
+- Réponds UNIQUEMENT avec le JSON, aucun texte avant ou après, pas de backticks markdown"""
+
+
+def generate_content_with_claude(slides_structure: list[dict], form_data: dict) -> list[dict]:
+    user_message = (
+        f"Informations de la mission :\n{json.dumps(form_data, ensure_ascii=False, indent=2)}\n\n"
+        f"Structure du modèle PPTX :\n{json.dumps(slides_structure, ensure_ascii=False, indent=2)}\n\n"
+        "Génère le contenu professionnel en JSON."
+    )
+    msg = ai.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=8192,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    raw = msg.content[0].text.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    return json.loads(raw)
+
+
+# ─────────────────────────────────────────────
+# MongoDB serialization
+# ─────────────────────────────────────────────
+
+def serialize(doc: dict) -> dict:
+    if doc and "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    return doc
+
+
+# ─────────────────────────────────────────────
+# Library scanning
+# ─────────────────────────────────────────────
+
+def scan_library() -> int:
+    lib = Path(LIBRARY_DIR)
+    if not lib.exists():
+        return 0
+    ops, now = [], datetime.utcnow()
+    for f in lib.glob("*.pptx"):
+        ops.append(UpdateOne(
+            {"filename": f.name},
+            {"$set": {"filename": f.name, "path": str(f), "size": f.stat().st_size,
+                      "slide_count": get_slide_count(f), "updated_at": now},
+             "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        ))
+    if ops:
+        templates_col.bulk_write(ops)
+    return len(ops)
+
+
+# ─────────────────────────────────────────────
+# Routes — health
+# ─────────────────────────────────────────────
+
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "libreoffice": find_soffice() or "not found",
+        "pdftoppm":    shutil.which("pdftoppm") or "not found",
+        "anthropic":   "key set" if ANTHROPIC_API_KEY else "KEY MISSING — set ANTHROPIC_API_KEY in .env",
+    })
+
+
+@app.route("/")
+def root():
+    return jsonify({"message": "Propale API v1"})
+
+
+# ─────────────────────────────────────────────
+# Routes — Templates
+# ─────────────────────────────────────────────
+
+@app.route("/api/templates", methods=["GET"])
+def list_templates():
+    if request.args.get("scan") == "1":
+        scan_library()
+    return jsonify({"items": list(templates_col.find({}, {"_id": 0}).sort("filename", 1))})
+
+
+@app.route("/api/templates/scan", methods=["POST"])
+def scan_templates():
+    return jsonify({"count": scan_library()})
+
+
+@app.route("/api/templates/<path:filename>/pdf", methods=["GET"])
+def template_pdf(filename: str):
+    fp = Path(LIBRARY_DIR) / filename
+    if not fp.exists():
+        return jsonify({"error": "File not found"}), 404
+    try:
+        return send_file(ensure_pdf(fp), mimetype="application/pdf")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates/<path:filename>/slides", methods=["GET"])
+def template_slides(filename: str):
+    fp = Path(LIBRARY_DIR) / filename
+    if not fp.exists():
+        return jsonify({"error": "File not found"}), 404
+    mode = request.args.get("mode", "images")
+    if mode == "text":
+        try:
+            s = slides_fallback_text(fp)
+            return jsonify({"slide_count": len(s), "mode": "text", "slides": s})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    try:
+        imgs = slides_to_images(fp, fp.stem)
+        return jsonify({"filename": filename, "slide_count": len(imgs), "mode": "images", "slides": imgs})
+    except RuntimeError as e:
+        return jsonify({"error": str(e), "fallback_url": f"/api/templates/{filename}/slides?mode=text"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─────────────────────────────────────────────
+# Routes — Generate
+# ─────────────────────────────────────────────
+
+@app.route("/api/generate", methods=["POST"])
+def generate_presentation():
+    """
+    POST /api/generate
+    Body: { "template_filename": "...", "form": { clientName, sector, … } }
+    Returns: { "presentation_id": "…", "slide_count": N }
+    """
+    body = request.get_json(force=True)
+    tmpl_file = body.get("template_filename")
+    form_data = body.get("form", {})
+
+    if not tmpl_file:
+        return jsonify({"error": "template_filename is required"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY not set in .env"}), 500
+
+    tmpl_path = Path(LIBRARY_DIR) / tmpl_file
+    if not tmpl_path.exists():
+        return jsonify({"error": f"Template not found: {tmpl_file}"}), 404
+
+    # Step 1 — extract template structure
+    try:
+        structure = extract_slides_text(tmpl_path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read template: {e}"}), 500
+
+    # Step 2 — generate content with Claude
+    try:
+        generated = generate_content_with_claude(structure, form_data)
+    except json.JSONDecodeError as e:
+        return jsonify({"error": f"Claude returned malformed JSON: {e}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"AI generation error: {e}"}), 500
+
+    # Step 3 — build PPTX
+    pres_id  = str(uuid.uuid4())
+    out_name = f"propale_{pres_id}.pptx"
+    out_file = output_path / out_name
+    try:
+        inject_content_into_pptx(tmpl_path, generated, out_file)
+    except Exception as e:
+        return jsonify({"error": f"PPTX creation failed: {e}"}), 500
+
+    slide_count = get_slide_count(out_file)
+
+    # Step 4 — persist
+    now = datetime.utcnow()
+    doc = {
+        "presentation_id": pres_id,
+        "filename":        out_name,
+        "path":            str(out_file),
+        "template":        tmpl_file,
+        "form":            form_data,
+        "slide_count":     slide_count,
+        "status":          "draft",
+        "created_at":      now,
+        "updated_at":      now,
+    }
+    result = presentations_col.insert_one(doc)
+
+    # Step 5 — pre-render slide images (best-effort, non-blocking)
+    try:
+        slides_to_images(out_file, pres_id)
+    except Exception:
+        pass
 
     return jsonify({
-        "message": "Element created successfully",
-        "element_id": element_id
+        "presentation_id": pres_id,
+        "mongo_id":        str(result.inserted_id),
+        "filename":        out_name,
+        "slide_count":     slide_count,
     }), 201
 
 
-@app.route("/api/elements", methods=["GET"])
-@jwt_required()
-def get_elements():
-    user_id = get_jwt_identity()
-    elements = Element.find_by_user(user_id)
+# ─────────────────────────────────────────────
+# Routes — Presentations
+# ─────────────────────────────────────────────
 
-    for element in elements:
-        element['_id'] = str(element['_id'])
-        element['user_id'] = str(element['user_id'])
+@app.route("/api/presentations", methods=["GET"])
+def list_presentations():
+    docs = list(presentations_col.find().sort("created_at", -1))
+    return jsonify({"items": [serialize(d) for d in docs]})
 
-    return jsonify({"elements": elements}), 200
+
+@app.route("/api/presentations/<pres_id>", methods=["GET"])
+def get_presentation(pres_id: str):
+    doc = presentations_col.find_one({"presentation_id": pres_id})
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(serialize(doc))
+
+
+@app.route("/api/presentations/<pres_id>/slides", methods=["GET"])
+def presentation_slides(pres_id: str):
+    doc = presentations_col.find_one({"presentation_id": pres_id})
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    fp = Path(doc["path"])
+    if not fp.exists():
+        return jsonify({"error": "PPTX file missing on disk"}), 404
+    mode = request.args.get("mode", "images")
+    if mode == "text":
+        try:
+            s = slides_fallback_text(fp)
+            return jsonify({"slide_count": len(s), "mode": "text", "slides": s})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    try:
+        imgs = slides_to_images(fp, pres_id)
+        return jsonify({"slide_count": len(imgs), "mode": "images", "slides": imgs})
+    except RuntimeError as e:
+        return jsonify({"error": str(e), "fallback_url": f"/api/presentations/{pres_id}/slides?mode=text"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/presentations/<pres_id>/slide/<int:slide_index>", methods=["PATCH"])
+def patch_slide(pres_id: str, slide_index: int):
+    """
+    PATCH /api/presentations/<id>/slide/<n>
+    Body: { "shapes": [{ "shape_id": N, "texts": ["para1", "para2"] }] }
+    Saves the PPTX and invalidates the image cache for this presentation.
+    """
+    doc = presentations_col.find_one({"presentation_id": pres_id})
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    fp = Path(doc["path"])
+    if not fp.exists():
+        return jsonify({"error": "PPTX missing"}), 404
+
+    shapes_patch = {s["shape_id"]: s["texts"] for s in request.get_json(force=True).get("shapes", [])}
+    try:
+        prs   = Presentation(str(fp))
+        slide = prs.slides[slide_index]
+        for shape in slide.shapes:
+            if shape.shape_id not in shapes_patch or not shape.has_text_frame:
+                continue
+            new_texts = shapes_patch[shape.shape_id]
+            for i, para in enumerate(shape.text_frame.paragraphs):
+                t = new_texts[i] if i < len(new_texts) else ""
+                if para.runs:
+                    para.runs[0].text = t
+                    for run in para.runs[1:]:
+                        run.text = ""
+        prs.save(str(fp))
+    except Exception as e:
+        return jsonify({"error": f"Patch failed: {e}"}), 500
+
+    invalidate_image_cache(pres_id)
+    presentations_col.update_one(
+        {"presentation_id": pres_id},
+        {"$set": {"updated_at": datetime.utcnow()}},
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/presentations/<pres_id>/submit", methods=["POST"])
+def submit_presentation(pres_id: str):
+    doc = presentations_col.find_one({"presentation_id": pres_id})
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    presentations_col.update_one(
+        {"presentation_id": pres_id},
+        {"$set": {"status": "submitted", "submitted_at": datetime.utcnow()}},
+    )
+    return jsonify({"ok": True, "status": "submitted"})
+
+
+@app.route("/api/presentations/<pres_id>/download", methods=["GET"])
+def download_presentation(pres_id: str):
+    doc = presentations_col.find_one({"presentation_id": pres_id})
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    fp = Path(doc["path"])
+    if not fp.exists():
+        return jsonify({"error": "File not found"}), 404
+    name = f"Propale_{doc['form'].get('clientName', 'client')}.pptx"
+    return send_file(
+        fp,
+        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        as_attachment=True,
+        download_name=name,
+    )
 
 
 if __name__ == "__main__":
