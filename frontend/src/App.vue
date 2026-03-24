@@ -6,6 +6,8 @@ import LibraryView from './components/LibraryView.vue'
 import NewPresentationView from './components/NewPresentationView.vue'
 import SectionPlaceholder from './components/SectionPlaceholder.vue'
 import Login from './components/Login.vue'
+import Moncompte from './components/Moncompte.vue'
+import Statistique from './components/Statistique.vue'
 import { isLoggedIn, logout, getCurrentUser } from './api.js'
 
 const isAuthenticated = ref(false)
@@ -60,7 +62,9 @@ const activeComponent = computed(() => {
   if (activeSection.value === 'dashboard') return DashboardHome
   if (activeSection.value === 'presentations') return PresentationsView
   if (activeSection.value === 'library') return LibraryView
+  if (activeSection.value === 'stats') return Statistique
   if (activeSection.value === 'new-presentation') return NewPresentationView
+  if (activeSection.value === 'account') return Moncompte
 
   const section = sections.find((item) => item.key === activeSection.value)
   return {
@@ -120,6 +124,7 @@ const activeComponent = computed(() => {
           v-bind="activeComponent.props ?? {}"
           :user="currentUser"
           @new-presentation="openNewPresentation"
+          @logout="handleLogout"
           @back="goBack"
         />
       </main>
