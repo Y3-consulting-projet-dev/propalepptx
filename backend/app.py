@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 from config import Config
 from models import User, Proposal, Element
+import time
+import bcrypt
 
 load_dotenv()
 
@@ -414,6 +416,43 @@ def template_pdf(filename: str):
         return jsonify({"error": "File not found"}), 404
     try:
         return send_file(ensure_pdf(fp), mimetype="application/pdf")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/auth/change_password", methods=["POST"])
+@jwt_required()
+def change_password():
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+
+    old_password = data.get("old_password")
+    new_password = data.get("new_password")
+
+    if not old_password or not new_password:
+        return jsonify({"error": "old_password and new_password are required"}), 400
+
+    password_error = validate_password_strength(new_password)
+    if password_error:
+        return jsonify({"error": password_error}), 400
+
+    try:
+        from bson import ObjectId
+        user = User.collection.find_one({"_id": ObjectId(user_id)}, {"password": 1})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        if not User.verify_password(user["password"], old_password):
+            # The user is authenticated (JWT ok) but provided a wrong current password.
+            # Return a validation error (not an auth/session error).
+            return jsonify({"error": "Old password is incorrect"}), 400
+
+        hashed_password = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt())
+        User.collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"password": hashed_password, "updated_at": datetime.utcnow()}},
+        )
+
+        return jsonify({"message": "Password updated successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
