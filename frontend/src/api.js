@@ -61,6 +61,7 @@ export async function loginUser(email, password) {
   const data = await res.json()
   // Store token in localStorage
   localStorage.setItem('access_token', data.access_token)
+  localStorage.setItem('session_started_at', new Date().toISOString())
   if (data.user) {
     localStorage.setItem('user', JSON.stringify(data.user))
   }
@@ -76,6 +77,7 @@ export async function getProposals() {
     if (res.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('access_token')
+      localStorage.removeItem('session_started_at')
       throw new Error('Session expired. Please login again.')
     }
     throw new Error(`API error: ${res.status}`)
@@ -97,6 +99,7 @@ export async function generateProposal(title, content) {
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem('access_token')
+      localStorage.removeItem('session_started_at')
       throw new Error('Session expired. Please login again.')
     }
     const error = await res.json()
@@ -119,6 +122,7 @@ export async function createElement(name, value = null, metadata = {}) {
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem('access_token')
+      localStorage.removeItem('session_started_at')
       throw new Error('Session expired. Please login again.')
     }
     const error = await res.json()
@@ -136,6 +140,7 @@ export async function getElements() {
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem('access_token')
+      localStorage.removeItem('session_started_at')
       throw new Error('Session expired. Please login again.')
     }
     throw new Error(`API error: ${res.status}`)
@@ -147,6 +152,7 @@ export async function getElements() {
 export function logout() {
   localStorage.removeItem('access_token')
   localStorage.removeItem('user')
+  localStorage.removeItem('session_started_at')
 }
 
 export function isLoggedIn() {
@@ -161,4 +167,59 @@ export function getCurrentUser() {
   } catch {
     return null
   }
+}
+
+export async function changePassword(old_password, new_password) {
+  const res = await fetch(`${API_BASE}/auth/change_password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ old_password, new_password }),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    const message = error.error || error.msg || error.message
+
+    if (res.status === 401) {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('session_started_at')
+      throw new Error(message || 'Session expired. Please login again.')
+    }
+
+    throw new Error(message || 'Password change failed')
+  }
+
+  return res.json()
+}
+
+export async function getUsageStats({ range = '30d', compare = false, scope = 'me' } = {}) {
+  const params = new URLSearchParams()
+  if (range) params.set('range', range)
+  if (compare) params.set('compare', '1')
+  if (scope) params.set('scope', scope)
+
+  const res = await fetch(`${API_BASE}/stats/usage?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    const message = error.error || error.msg || error.message
+
+    if (res.status === 401) {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('session_started_at')
+      throw new Error(message || 'Session expired. Please login again.')
+    }
+
+    // Keep message from backend when possible (ex: 403 Forbidden)
+    throw new Error(message || `API error: ${res.status}`)
+  }
+
+  return res.json()
 }
