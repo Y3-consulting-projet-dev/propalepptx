@@ -21,6 +21,7 @@ from config import Config
 from models import User, Proposal, Element
 import time
 import bcrypt
+from bson import ObjectId
 
 load_dotenv()
 
@@ -44,6 +45,7 @@ mongo_client      = MongoClient(MONGO_URI)
 db                = mongo_client.get_default_database()
 templates_col     = db["templates"]
 presentations_col = db["presentations"]
+clients_col = db["clients"]
 
 cache_path  = Path(CACHE_DIR)
 output_path = Path(OUTPUT_DIR)
@@ -57,6 +59,156 @@ ai = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+
+# ─────────────────────────────────────────────
+# Routes — Clients
+# Ajouter dans app.py après les imports MongoDB existants :
+#   clients_col = db["clients"]
+# ─────────────────────────────────────────────
+
+def serialize_client(doc: dict) -> dict:
+    if doc and "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    return doc
+ 
+ 
+@app.route("/api/clients", methods=["GET"])
+def list_clients():
+    """
+    GET /api/clients?page=1&limit=25&q=search
+    Recherche sur company_name, sector, country, responsable_name.
+    """
+    page  = max(1, int(request.args.get("page", 1)))
+    limit = min(100, int(request.args.get("limit", 25)))
+    q     = request.args.get("q", "").strip()
+    skip  = (page - 1) * limit
+ 
+    query = {}
+    if q:
+        query["$or"] = [
+            {"company_name":       {"$regex": q, "$options": "i"}},
+            {"sector":             {"$regex": q, "$options": "i"}},
+            {"country":            {"$regex": q, "$options": "i"}},
+            {"responsable_name":   {"$regex": q, "$options": "i"}},
+        ]
+ 
+    total = clients_col.count_documents(query)
+    docs  = list(
+        clients_col.find(query)
+        .sort("company_name", 1)
+        .skip(skip)
+        .limit(limit)
+    )
+ 
+    return jsonify({
+        "items":      [serialize_client(d) for d in docs],
+        "total":      total,
+        "page":       page,
+        "limit":      limit,
+        "totalPages": max(1, (total + limit - 1) // limit),
+    })
+ 
+ 
+@app.route("/api/clients", methods=["POST"])
+def create_client():
+    data = request.get_json(force=True)
+ 
+    if not data.get("company_name", "").strip():
+        return jsonify({"error": "Le nom du client est requis"}), 400
+ 
+    now = datetime.utcnow()
+    doc = {
+        "company_name":        data.get("company_name", "").strip(),
+        "sector":              data.get("sector", ""),
+        "country":             data.get("country", ""),
+        "civility":            data.get("civility", ""),
+        "responsable_name":    data.get("responsable_name", ""),
+        "responsable_function":data.get("responsable_function", ""),
+        "legal_form":          data.get("legal_form", ""),
+        "RCCM":                data.get("RCCM", ""),
+        "address":             data.get("address", ""),
+        "creation_date":       data.get("creation_date", ""),
+        "created_at":          now,
+        "updated_at":          now,
+    }
+    result = clients_col.insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    return jsonify(doc), 201
+ 
+ 
+@app.route("/api/clients/<client_id>", methods=["GET"])
+def get_client(client_id: str):
+    from bson import ObjectId
+    try:
+        doc = clients_col.find_one({"_id": ObjectId(client_id)})
+    except Exception:
+        return jsonify({"error": "Invalid ID"}), 400
+    if not doc:
+        return jsonify({"error": "Client not found"}), 404
+    return jsonify(serialize_client(doc))
+ 
+ 
+@app.route("/api/clients/<client_id>", methods=["PUT"])
+def update_client(client_id: str):
+    from bson import ObjectId
+    data = request.get_json(force=True)
+ 
+    if not data.get("company_name", "").strip():
+        return jsonify({"error": "Le nom du client est requis"}), 400
+ 
+    updates = {
+        "company_name":        data.get("company_name", "").strip(),
+        "sector":              data.get("sector", ""),
+        "country":             data.get("country", ""),
+        "civility":            data.get("civility", ""),
+        "responsable_name":    data.get("responsable_name", ""),
+        "responsable_function":data.get("responsable_function", ""),
+        "legal_form":          data.get("legal_form", ""),
+        "RCCM":                data.get("RCCM", ""),
+        "address":             data.get("address", ""),
+        "creation_date":       data.get("creation_date", ""),
+        "updated_at":          datetime.utcnow(),
+    }
+ 
+    try:
+        result = clients_col.update_one({"_id": ObjectId(client_id)}, {"$set": updates})
+    except Exception:
+        return jsonify({"error": "Invalid ID"}), 400
+ 
+    if result.matched_count == 0:
+        return jsonify({"error": "Client not found"}), 404
+ 
+    doc = clients_col.find_one({"_id": ObjectId(client_id)})
+    return jsonify(serialize_client(doc))
+ 
+ 
+@app.route("/api/clients/<client_id>", methods=["DELETE"])
+def delete_client(client_id: str):
+    from bson import ObjectId
+    try:
+        result = clients_col.delete_one({"_id": ObjectId(client_id)})
+    except Exception:
+        return jsonify({"error": "Invalid ID"}), 400
+    if result.deleted_count == 0:
+        return jsonify({"error": "Client not found"}), 404
+    return jsonify({"ok": True})
+ 
+ 
+@app.route("/api/clients/meta/sectors", methods=["GET"])
+def client_sectors():
+    """Retourne les secteurs distincts déjà en base, triés alphabétiquement."""
+    raw = clients_col.distinct("sector")
+    sectors = sorted([s for s in raw if s and s.strip()])
+    return jsonify({"items": sectors})
+ 
+ 
+@app.route("/api/clients/meta/countries", methods=["GET"])
+def client_countries():
+    """Retourne les pays distincts déjà en base, triés alphabétiquement."""
+    raw = clients_col.distinct("country")
+    countries = sorted([c for c in raw if c and c.strip()])
+    return jsonify({"items": countries})
 
 
 def validate_password_strength(password):
@@ -302,6 +454,63 @@ def invalidate_image_cache(stem: str):
     for f in cache_path.glob(f"{stem}_slide-*.png"):
         f.unlink(missing_ok=True)
     (cache_path / f"{stem}.pdf").unlink(missing_ok=True)
+
+
+@app.route("/api/templates/upload", methods=["POST"])
+def upload_template():
+    """
+    Upload one or more .pptx files to the library.
+    multipart/form-data, field name: "files"
+    Returns: { "uploaded": [{ filename, slide_count }], "errors": [...] }
+    """
+    if "files" not in request.files:
+        return jsonify({"error": "No files field in request"}), 400
+
+    lib = Path(LIBRARY_DIR)
+    lib.mkdir(parents=True, exist_ok=True)
+
+    uploaded, errors = [], []
+    now = datetime.utcnow()
+
+    for f in request.files.getlist("files"):
+        if not f.filename:
+            continue
+        if not f.filename.lower().endswith(".pptx"):
+            errors.append({"filename": f.filename, "error": "Seuls les fichiers .pptx sont acceptés"})
+            continue
+
+        safe_name = Path(f.filename).name
+        dest = lib / safe_name
+
+        # Avoid overwriting — add timestamp suffix
+        if dest.exists():
+            stem = safe_name[:-5]
+            suffix = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            safe_name = f"{stem}_{suffix}.pptx"
+            dest = lib / safe_name
+
+        try:
+            f.save(str(dest))
+            slide_count = get_slide_count(dest)
+            templates_col.update_one(
+                {"filename": safe_name},
+                {
+                    "$set": {
+                        "filename":    safe_name,
+                        "path":        str(dest),
+                        "size":        dest.stat().st_size,
+                        "slide_count": slide_count,
+                        "updated_at":  now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+            uploaded.append({"filename": safe_name, "slide_count": slide_count})
+        except Exception as e:
+            errors.append({"filename": safe_name, "error": str(e)})
+
+    return jsonify({"uploaded": uploaded, "errors": errors}), 201
 
 
 # ─────────────────────────────────────────────

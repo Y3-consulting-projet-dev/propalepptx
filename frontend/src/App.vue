@@ -9,6 +9,7 @@ import Login from './components/Login.vue'
 import Moncompte from './components/Moncompte.vue'
 import Statistique from './components/Statistique.vue'
 import { isLoggedIn, logout, getCurrentUser } from './api.js'
+import ClientSpaceView from './components/ClientSpaceView.vue'
 
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
@@ -36,6 +37,7 @@ const sections = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'presentations', label: 'Mes Présentations' },
   { key: 'library', label: 'Bibliothèque modèles' },
+  { key: 'clients-load', label: 'Clients' },
   { key: 'stats', label: 'Statistiques' },
   { key: 'ai', label: 'Génération IA' },
   { key: 'account', label: 'Mon compte' },
@@ -65,6 +67,7 @@ const activeComponent = computed(() => {
   if (activeSection.value === 'stats') return Statistique
   if (activeSection.value === 'new-presentation') return NewPresentationView
   if (activeSection.value === 'account') return Moncompte
+  if (activeSection.value === 'clients-load') return ClientSpaceView
 
   const section = sections.find((item) => item.key === activeSection.value)
   return {

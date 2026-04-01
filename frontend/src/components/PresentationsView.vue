@@ -41,7 +41,6 @@ const rows = [
         <p class="text-3xl font-semibold text-brand-600">Mes présentations</p>
       </div>
       <div class="flex items-center gap-4">
-        <button class="h-10 w-10 rounded-full border border-slate-200 bg-white text-slate-600">↻</button>
         <button
           class="rounded-full bg-brand-500 px-5 py-2 text-sm font-semibold text-white"
           @click="emit('new-presentation')"
