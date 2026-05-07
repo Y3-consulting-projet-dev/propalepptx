@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { getTemplates } from '../api.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const emit = defineEmits(['use-template'])
 
 function getSlidesUrl(filename, mode = 'images') {
   return `${API_BASE}/api/templates/${encodeURIComponent(filename)}/slides?mode=${mode}`
@@ -312,7 +313,10 @@ function filteredCards() {
         </div>
         <div class="mt-auto border-t border-slate-100 px-5 py-4">
           <div class="flex items-center justify-between">
-            <button class="rounded-full bg-brand-500 px-4 py-1.5 text-xs font-semibold text-white">
+            <button
+              class="rounded-full bg-brand-500 px-4 py-1.5 text-xs font-semibold text-white"
+              @click="emit('use-template', card.filename)"
+            >
               Utiliser
             </button>
             <button

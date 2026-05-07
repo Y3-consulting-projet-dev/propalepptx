@@ -1,14 +1,18 @@
-<script setup>
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+﻿<script setup>
+import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { getAuthHeaders, getCurrentUser } from '../api.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const props = defineProps({
+  presentationId: {
+    type: String,
+    required: true,
+  },
+})
+const emit = defineEmits(['back'])
 
-const router = useRoute()
-const $router = useRouter()
-
-// ─── State ────────────────────────────────────────────────────────────────────
-const presId       = router.params.id
+//â”€ State
+const presId       = props.presentationId
 const presentation = ref(null)
 const slides       = ref([])           // base64 PNG strings
 const slideMode    = ref('images')
@@ -25,19 +29,28 @@ const saving        = ref(false)
 // Submit modal
 const showSubmitModal = ref(false)
 const submitting      = ref(false)
-const submitted       = ref(false)
+const successMessage  = ref('')
 
 // Download
 const downloading = ref(false)
+const renameDraft = ref('')
+const renaming = ref(false)
+const commentDraft = ref('')
+const commentSaving = ref(false)
+const returningForCorrections = ref(false)
+const validating = ref(false)
+const currentUser = getCurrentUser()
 
-// ─── Load presentation metadata ───────────────────────────────────────────────
+//â”€ Load presentation metadataâ”€
 async function loadPresentation() {
   try {
-    const res  = await fetch(`${API_BASE}/api/presentations/${presId}`)
+    const res  = await fetch(`${API_BASE}/api/presentations/${presId}`, {
+      headers: getAuthHeaders(),
+    })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Erreur')
     presentation.value = data
-    submitted.value = data.status === 'submitted'
+    renameDraft.value = String(data.filename || '').replace(/\.pptx$/i, '')
   } catch (e) {
     error.value = e.message
   } finally {
@@ -45,12 +58,14 @@ async function loadPresentation() {
   }
 }
 
-// ─── Load slide images ────────────────────────────────────────────────────────
+//â”€ Load slide images
 async function loadSlides(mode = 'images') {
   slidesLoading.value = true
   slides.value = []
   try {
-    const res  = await fetch(`${API_BASE}/api/presentations/${presId}/slides?mode=${mode}`)
+    const res  = await fetch(`${API_BASE}/api/presentations/${presId}/slides?mode=${mode}`, {
+      headers: getAuthHeaders(),
+    })
     const data = await res.json()
     if (!res.ok) {
       if (data.fallback_url) {
@@ -68,31 +83,33 @@ async function loadSlides(mode = 'images') {
   }
 }
 
-// ─── Load editable shapes for current slide ───────────────────────────────────
+//â”€ Load editable shapes for current slideâ”€
 async function loadEditShapes() {
   try {
-    const res  = await fetch(`${API_BASE}/api/presentations/${presId}/slides?mode=text`)
+    const res  = await fetch(`${API_BASE}/api/presentations/${presId}/slides/${currentIdx.value}/shapes`, {
+      headers: getAuthHeaders(),
+    })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error)
-    // text mode returns slide objects with title/text — we need shapes
+    // text mode returns slide objects with title/text â€” we need shapes
     // We'll use the text slide data as editable content
-    const slideData = (data.slides || [])[currentIdx.value]
-    editShapes.value = slideData ? [
-      { shape_id: 0, label: 'Titre', value: slideData.title || '' },
-      { shape_id: 1, label: 'Contenu', value: slideData.text || '' },
-    ] : []
+    editShapes.value = (data.shapes || []).map((shape, index) => ({
+      shape_id: shape.shape_id,
+      label: shape.shape_name || `Bloc ${index + 1}`,
+      value: (shape.texts || []).join('\n'),
+    }))
   } catch (e) {
     console.error(e)
   }
 }
 
-// ─── Save edited shapes ───────────────────────────────────────────────────────
+//â”€ Save edited shapesâ”€
 async function saveEdits() {
   saving.value = true
   try {
-    await fetch(`${API_BASE}/api/presentations/${presId}/slide/${currentIdx.value}`, {
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/slide/${currentIdx.value}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
         shapes: editShapes.value.map(s => ({
           shape_id: s.shape_id,
@@ -100,6 +117,8 @@ async function saveEdits() {
         })),
       }),
     })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la sauvegarde')
     editing.value = false
     // Reload slide images
     await loadSlides('images')
@@ -110,7 +129,36 @@ async function saveEdits() {
   }
 }
 
-// ─── Navigation ───────────────────────────────────────────────────────────────
+//â”€ Navigationâ”€
+async function savePresentationName() {
+  const cleanName = String(renameDraft.value || '').trim()
+  if (!cleanName) {
+    alert('Le nom du document est requis')
+    return
+  }
+
+  renaming.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ filename: cleanName }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du renommage')
+
+    const finalFilename = String(data.filename || `${cleanName}.pptx`)
+    renameDraft.value = finalFilename.replace(/\.pptx$/i, '')
+    if (presentation.value) {
+      presentation.value = { ...presentation.value, filename: finalFilename }
+    }
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    renaming.value = false
+  }
+}
+
 function goTo(idx) {
   if (idx < 0 || idx >= slides.value.length) return
   currentIdx.value = idx
@@ -123,14 +171,34 @@ function onKeyDown(e) {
   if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')    goTo(currentIdx.value - 1)
 }
 
-// ─── Submit ───────────────────────────────────────────────────────────────────
+function showSuccess(message) {
+  successMessage.value = message
+  window.setTimeout(() => {
+    if (successMessage.value === message) {
+      successMessage.value = ''
+    }
+  }, 3000)
+}
+
+//â”€ Submitâ”€
 async function submitToAssociate() {
   submitting.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/presentations/${presId}/submit`, { method: 'POST' })
-    if (!res.ok) throw new Error('Erreur lors de la soumission')
-    submitted.value      = true
+    const shouldReturnToListAfterSubmit =
+      presentation.value?.is_owner !== true && presentation.value?.is_reviewer === true
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/submit`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la soumission')
     showSubmitModal.value = false
+    showSuccess('Présentation soumise avec succès.')
+    if (shouldReturnToListAfterSubmit) {
+      emit('back')
+      return
+    }
+    await loadPresentation()
   } catch (e) {
     alert(e.message)
   } finally {
@@ -138,11 +206,85 @@ async function submitToAssociate() {
   }
 }
 
-// ─── Download ─────────────────────────────────────────────────────────────────
+async function addComment() {
+  const text = String(commentDraft.value || '').trim()
+  if (!text) return
+
+  commentSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({
+        slide_index: currentIdx.value,
+        text,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’ajout du commentaire')
+
+    const comments = Array.isArray(presentation.value?.slide_comments)
+      ? [...presentation.value.slide_comments, data.comment]
+      : [data.comment]
+
+    if (presentation.value) {
+      presentation.value = {
+        ...presentation.value,
+        slide_comments: comments,
+      }
+    }
+    commentDraft.value = ''
+    showSuccess('Commentaire ajouté.')
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    commentSaving.value = false
+  }
+}
+
+async function returnToAssistantForCorrections() {
+  returningForCorrections.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/return`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du renvoi pour correction')
+    showSuccess('Présentation renvoyée pour correction.')
+    emit('back')
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    returningForCorrections.value = false
+  }
+}
+
+async function validatePresentation() {
+  validating.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/validate`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la validation')
+    showSuccess('Présentation validée avec succès.')
+    emit('back')
+  } catch (e) {
+    alert(e.message)
+  } finally {
+    validating.value = false
+  }
+}
+
+//â”€ Downloadâ”€
 async function downloadPptx() {
   downloading.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/presentations/${presId}/download`)
+    const res = await fetch(`${API_BASE}/api/presentations/${presId}/download`, {
+      headers: getAuthHeaders(),
+    })
     if (!res.ok) throw new Error('Téléchargement échoué')
     const blob     = await res.blob()
     const url      = URL.createObjectURL(blob)
@@ -160,13 +302,35 @@ async function downloadPptx() {
   }
 }
 
-// ─── Computed ─────────────────────────────────────────────────────────────────
+//â”€ Computedâ”€
 const currentSlide = computed(() => slides.value[currentIdx.value])
 const totalSlides  = computed(() => slides.value.length)
 const clientName   = computed(() => presentation.value?.form?.clientName || 'Présentation')
 const presFilename = computed(() => presentation.value?.filename || '')
+const submitActionLabel = computed(() => presentation.value?.submit_action_label || "Soumettre Ã  l'associé")
+const currentReviewerName = computed(() => presentation.value?.next_reviewer_name || '')
+const canSubmit = computed(() => presentation.value?.can_submit === true)
+const canValidate = computed(() => presentation.value?.can_validate === true)
+const canComment = computed(() => presentation.value?.can_comment === true)
+const canReturnForCorrections = computed(() => presentation.value?.can_return_for_corrections === true)
+const slideComments = computed(() =>
+  (presentation.value?.slide_comments || []).filter(
+    (comment) => Number(comment.slide_index) === currentIdx.value,
+  ),
+)
 
-// ─── Lifecycle ────────────────────────────────────────────────────────────────
+function formatCommentDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('fr-FR')
+}
+
+function isOwnComment(comment) {
+  return Boolean(currentUser?.id) && String(comment?.author_user_id || '') === String(currentUser.id)
+}
+
+//â”€ Lifecycle
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   await loadPresentation()
@@ -177,20 +341,26 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 <template>
   <div class="flex h-screen flex-col bg-slate-100 font-sans">
+    <div
+      v-if="successMessage"
+      class="fixed right-6 top-6 z-50 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-xl"
+    >
+      {{ successMessage }}
+    </div>
 
-    <!-- ── Top bar ── -->
+    <!-- Top bar -->
     <header class="flex h-12 flex-shrink-0 items-center justify-between bg-brand-500 px-4 shadow">
 
       <!-- Left: back + menu -->
       <div class="flex items-center gap-6">
         <button
           class="flex items-center gap-1.5 text-xs font-semibold text-white/80 hover:text-white"
-          @click="$router.back()"
+          @click="emit('back')"
         >
           <span class="text-base">←</span> Retour
         </button>
         <nav class="hidden items-center gap-5 sm:flex">
-          <button v-for="item in ['Fichier','Édition','Insertion','IA']" :key="item"
+          <button v-for="item in ['Fichier','Édition','Insertion','Placeholders']" :key="item"
                   class="text-xs font-semibold text-white/90 hover:text-white">
             {{ item }}
           </button>
@@ -198,9 +368,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <!-- Center: filename -->
-      <span class="hidden truncate text-xs font-semibold text-white sm:block max-w-xs" :title="presFilename">
-        {{ presFilename }}
-      </span>
+      <div class="hidden items-center gap-2 sm:flex max-w-xl min-w-0">
+        <input
+          v-model="renameDraft"
+          type="text"
+          class="min-w-0 flex-1 rounded-md border border-white/25 bg-white/15 px-3 py-1 text-xs font-semibold text-white placeholder:text-white/70 outline-none"
+          placeholder="Nom du document"
+          @keydown.enter.prevent="savePresentationName"
+        />
+        <button
+          class="rounded-md border border-white/30 bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+          :disabled="renaming"
+          @click="savePresentationName"
+        >
+          {{ renaming ? 'Enregistrement…' : 'Renommer' }}
+        </button>
+      </div>
 
       <!-- Right: actions -->
       <div class="flex items-center gap-2">
@@ -213,27 +396,40 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          {{ downloading ? 'Export…' : 'Télécharger' }}
+          {{ downloading ? 'Exporter' : 'Télécharger' }}
         </button>
 
         <!-- Submit -->
         <button
-          v-if="!submitted"
+          v-if="canSubmit"
           class="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
           @click="showSubmitModal = true"
         >
-          Soumettre à l'associé
+          {{ submitActionLabel }}
         </button>
-        <span v-else class="rounded-lg bg-green-700 px-4 py-1.5 text-xs font-semibold text-white">
-          ✓ Soumis
-        </span>
+        <button
+          v-if="canValidate"
+          class="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          :disabled="validating"
+          @click="validatePresentation"
+        >
+          {{ validating ? 'Validation…' : 'Valider' }}
+        </button>
+        <button
+          v-if="canReturnForCorrections"
+          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          :disabled="returningForCorrections"
+          @click="returnToAssistantForCorrections"
+        >
+          {{ returningForCorrections ? 'Renvoi…' : 'Renvoyer pour correction' }}
+        </button>
       </div>
     </header>
 
-    <!-- ── Main area ── -->
+    <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">
 
-      <!-- ── Filmstrip (left sidebar) ── -->
+      <!-- Filmstrip (left sidebar) -->
       <aside class="flex w-44 flex-shrink-0 flex-col gap-0 overflow-y-auto border-r border-slate-200 bg-white py-3">
         <template v-if="slidesLoading">
           <div v-for="n in 6" :key="n"
@@ -283,7 +479,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
         </template>
       </aside>
 
-      <!-- ── Central view ── -->
+      <!-- Central view -->
       <main class="flex flex-1 flex-col items-center justify-center overflow-auto bg-slate-200 p-6 gap-4">
 
         <!-- Error state -->
@@ -295,7 +491,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
         <!-- Loading state -->
         <div v-else-if="slidesLoading" class="flex flex-col items-center gap-3">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-brand-500"></div>
-          <p class="text-sm text-slate-500">Chargement des slides…</p>
+          <p class="text-sm text-slate-500">Chargement des slideser</p>
         </div>
 
         <!-- Slide view -->
@@ -383,7 +579,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
                 :disabled="saving"
                 @click="saveEdits"
               >
-                {{ saving ? 'Sauvegarde…' : 'Enregistrer' }}
+                {{ saving ? 'Sauvegardeer' : 'Enregistrer' }}
               </button>
               <button
                 class="rounded-lg bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow hover:bg-slate-50"
@@ -393,19 +589,74 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
               </button>
             </template>
           </div>
+
+          <section class="w-full max-w-4xl rounded-2xl bg-white p-5 shadow">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <h3 class="text-sm font-semibold text-slate-900">Commentaires de la slide {{ currentIdx + 1 }}</h3>
+                <p class="mt-1 text-xs text-slate-500">Le manager peut laisser des indications, et l’assistant peut répondre avant une nouvelle soumission.</p>
+              </div>
+              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {{ slideComments.length }} commentaire{{ slideComments.length > 1 ? 's' : '' }}
+              </span>
+            </div>
+
+            <div class="mt-4 space-y-3">
+              <div
+                v-for="comment in slideComments"
+                :key="comment.comment_id"
+                class="rounded-xl border px-4 py-3"
+                :class="isOwnComment(comment) ? 'border-brand-100 bg-brand-50/40' : 'border-slate-200 bg-slate-50'"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900">{{ comment.author_name || 'Utilisateur' }}</p>
+                    <p class="text-xs text-slate-500">{{ comment.author_grade || '-' }}</p>
+                  </div>
+                  <span class="text-xs text-slate-400">{{ formatCommentDate(comment.created_at) }}</span>
+                </div>
+                <p class="mt-3 whitespace-pre-wrap text-sm text-slate-700">{{ comment.text }}</p>
+              </div>
+
+              <div v-if="!slideComments.length" class="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
+                Aucun commentaire sur cette slide pour le moment.
+              </div>
+            </div>
+
+            <div v-if="canComment" class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Ajouter un commentaire
+              </label>
+              <textarea
+                v-model="commentDraft"
+                rows="3"
+                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-500"
+                placeholder="Exemple : revoir la formulation de cette slide, préciser le contexte client, ajouter une source…"
+              />
+              <div class="mt-3 flex justify-end">
+                <button
+                  class="rounded-lg bg-brand-500 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                  :disabled="commentSaving || !commentDraft.trim()"
+                  @click="addComment"
+                >
+                  {{ commentSaving ? 'Enregistrement…' : 'Publier le commentaire' }}
+                </button>
+              </div>
+            </div>
+          </section>
         </template>
       </main>
     </div>
 
-    <!-- ── Submit confirmation modal ── -->
+    <!-- Submit confirmation modal -->
     <Teleport to="body">
       <div v-if="showSubmitModal"
            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
         <div class="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-          <h2 class="text-lg font-semibold text-slate-900">Soumettre à l'associé</h2>
+          <h2 class="text-lg font-semibold text-slate-900">{{ submitActionLabel }}</h2>
           <p class="mt-3 text-sm text-slate-600">
-            La présentation <strong>{{ clientName }}</strong> sera transmise à l'associé responsable pour validation.
-            Cette action ne peut pas être annulée.
+            La présentation <strong>{{ clientName }}</strong> sera transmise au validateur suivant.
+            <span v-if="currentReviewerName">Validateur actuel : <strong>{{ currentReviewerName }}</strong>.</span>
           </p>
           <div class="mt-6 flex justify-end gap-3">
             <button
@@ -419,7 +670,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
               :disabled="submitting"
               @click="submitToAssociate"
             >
-              {{ submitting ? 'Envoi…' : 'Confirmer la soumission' }}
+              {{ submitting ? 'Envoier' : 'Confirmer la soumission' }}
             </button>
           </div>
         </div>
@@ -428,3 +679,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
   </div>
 </template>
+
+
+
+
+

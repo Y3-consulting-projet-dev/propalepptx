@@ -1,4 +1,7 @@
 ﻿<script setup>
+import { computed, onMounted, ref, watch } from 'vue'
+import { getDashboardSummary } from '../api.js'
+
 const props = defineProps({
   user: {
     type: Object,
@@ -6,7 +9,13 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['new-presentation'])
+const emit = defineEmits(['new-presentation', 'open-editor'])
+
+const loading = ref(true)
+const loadError = ref('')
+const activeUsersCount = ref(0)
+const recentPresentations = ref([])
+const searchQuery = ref('')
 
 const initials = (user) => {
   const first = (user?.first_name || '').trim()
@@ -15,23 +24,55 @@ const initials = (user) => {
   const b = last ? last[0] : ''
   return (a + b).toUpperCase() || 'U'
 }
-const stats = [
-  { value: '47', label: 'Présentations générées', badge: 'P' },
-  { value: '50h', label: 'Temps économisé ce mois', badge: 'T' },
-  { value: '94%', label: 'Taux de satisfaction', badge: 'S' },
-  { value: '11', label: 'Utilisateurs actifs', badge: 'U' },
-]
-
-const presentations = [
-  { name: 'Collaborateur A', date: '12/11/2020', status: 'Terminé', dot: 'bg-brand-500' },
-  { name: 'Collaborateur B', date: '12/11/2020', status: 'En cours...', dot: 'bg-red-500' },
-  { name: 'Collaborateur C', date: '12/11/2020', status: 'Terminé', dot: 'bg-brand-500' },
-]
 
 const activities = [
-  { title: 'Audit RH — Généré et téléchargé', time: 'Il y a 2h' },
-  { title: 'Thomas D. a modifié le template Stratégie', time: 'Hier' },
+  { title: 'Commentaires et validations centralisés', time: 'Nouveau' },
+  { title: 'Suivi des soumissions assistant → manager → associé', time: 'Actif' },
 ]
+
+function normalizeStatus(status) {
+  if (status === 'completed') {
+    return { label: 'Terminée', dot: 'bg-emerald-500' }
+  }
+  if (status === 'changes_requested') {
+    return { label: 'Corrections demandées', dot: 'bg-rose-500' }
+  }
+  if (status === 'submitted_to_associate') {
+    return { label: "Soumise à l'associé", dot: 'bg-emerald-400' }
+  }
+  if (status === 'submitted_to_manager') {
+    return { label: 'Soumise au manager', dot: 'bg-sky-500' }
+  }
+  return { label: 'Brouillon', dot: 'bg-amber-500' }
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleDateString('fr-FR')
+}
+
+async function loadSummary() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const data = await getDashboardSummary(searchQuery.value)
+    activeUsersCount.value = Number(data.active_users_count || 0)
+    recentPresentations.value = data.recent_presentations || []
+  } catch (error) {
+    loadError.value = error.message || 'Erreur de chargement du dashboard'
+  } finally {
+    loading.value = false
+  }
+}
+
+const activeUsersLabel = computed(() => {
+  return `${activeUsersCount.value} actif${activeUsersCount.value > 1 ? 's' : ''}`
+})
+
+onMounted(loadSummary)
+watch(searchQuery, loadSummary)
 </script>
 
 <template>
@@ -46,7 +87,10 @@ const activities = [
           <p class="text-xs text-slate-500">{{ props.user?.grade }}</p>
         </div>
       </div>
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-3">
+        <button class="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+          En ligne : {{ activeUsersLabel }}
+        </button>
         <button
           class="rounded-full bg-brand-500 px-5 py-2 text-sm font-semibold text-white"
           @click="emit('new-presentation')"
@@ -56,69 +100,93 @@ const activities = [
       </div>
     </header>
 
-    <section class="mt-8 grid gap-4 xl:grid-cols-4">
-      <div v-for="stat in stats" :key="stat.label" class="card px-6 py-5">
-        <div class="flex items-start justify-between">
-          <div>
-            <p class="text-3xl font-bold text-brand-600">{{ stat.value }}</p>
-            <p class="text-sm font-semibold text-slate-600">{{ stat.label }}</p>
-          </div>
-          <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-sm font-bold text-brand-700">
-            {{ stat.badge }}
-          </span>
-        </div>
-      </div>
-    </section>
-
     <div class="mt-6 flex items-center justify-end">
       <div class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-        <span>Rechercher un collaborateur</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="w-64 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          placeholder="Rechercher une présentation ou un client"
+        />
         <span class="text-slate-400">⌕</span>
       </div>
     </div>
 
     <section class="mt-6 card">
-      <div class="grid grid-cols-[1.6fr_0.7fr_0.7fr_0.6fr] table-head px-6 py-3 text-sm font-semibold">
-        <span>Présentation</span>
-        <span>Type</span>
-        <span>Statut</span>
-        <span>Dates</span>
-      </div>
-      <div class="divide-y divide-slate-100">
-        <div
-          v-for="presentation in presentations"
-          :key="presentation.name"
-          class="grid grid-cols-[1.6fr_0.7fr_0.7fr_0.6fr] items-center px-6 py-4 text-sm"
-        >
-          <span class="font-semibold text-slate-900">{{ presentation.name }}</span>
-          <span class="text-slate-500">Audit RH</span>
-          <span class="text-slate-700">{{ presentation.status }}</span>
-          <div class="flex items-center justify-end gap-3">
-            <span class="text-slate-500">{{ presentation.date }}</span>
-            <span :class="['h-3 w-3 rounded-full', presentation.dot]"></span>
-          </div>
+      <div class="flex items-center justify-between px-6 py-4">
+        <div>
+          <h3 class="text-lg font-semibold text-brand-600">
+            {{ searchQuery.trim() ? 'Résultats de recherche' : 'Présentations récentes' }}
+          </h3>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ searchQuery.trim() ? 'Recherche parmi toutes les présentations accessibles.' : 'Les dernières présentations générées dans la plateforme.' }}
+          </p>
         </div>
+      </div>
+
+      <div class="grid grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] table-head px-6 py-3 text-sm font-semibold">
+        <span>Présentation</span>
+        <span>Client</span>
+        <span>Statut</span>
+        <span>Date</span>
+      </div>
+
+      <div v-if="loading" class="space-y-3 px-6 py-6">
+        <div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
+      </div>
+
+      <div v-else-if="loadError" class="px-6 py-6 text-sm text-red-600">
+        {{ loadError }}
+      </div>
+
+      <div v-else-if="!recentPresentations.length" class="px-6 py-8 text-sm text-slate-400">
+        {{ searchQuery.trim() ? 'Aucune présentation trouvée pour cette recherche.' : 'Aucune présentation récente disponible.' }}
+      </div>
+
+      <div v-else class="divide-y divide-slate-100">
+        <button
+          v-for="presentation in recentPresentations"
+          :key="presentation.presentation_id"
+          type="button"
+          class="grid w-full grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] items-center px-6 py-4 text-left text-sm transition hover:bg-brand-50/50"
+          @click="emit('open-editor', presentation.presentation_id)"
+        >
+          <div class="min-w-0">
+            <p class="truncate font-semibold text-slate-900">{{ presentation.title }}</p>
+            <p class="mt-1 truncate text-xs text-slate-400">
+              {{ presentation.mission_type || '-' }} · {{ presentation.owner_name || 'Utilisateur' }}
+            </p>
+          </div>
+          <span class="font-medium text-slate-600">{{ presentation.client_name || '-' }}</span>
+          <div class="flex items-center gap-3">
+            <span class="text-slate-700">{{ normalizeStatus(presentation.status).label }}</span>
+            <span :class="['h-3 w-3 rounded-full', normalizeStatus(presentation.status).dot]"></span>
+          </div>
+          <span class="text-slate-500">{{ formatDate(presentation.created_at || presentation.updated_at) }}</span>
+        </button>
       </div>
     </section>
 
-    <section class="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
+    <!-- <section class="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
       <div class="card px-6 py-6">
         <div class="flex items-center justify-between">
           <p class="text-sm font-semibold text-slate-600">Performance collaborateurs</p>
           <div class="stat-pill">Tâche vs Exécution</div>
         </div>
-        <div class="mt-6 h-56 rounded-xl border border-dashed border-slate-200 bg-slate-50/70"></div>
+        <div class="mt-6 flex h-56 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-400">
+          Visualisation à brancher
+        </div>
       </div>
 
       <div class="card px-6 py-6">
         <h3 class="text-lg font-semibold text-brand-600">Activité récente</h3>
         <div class="mt-4 space-y-5">
-          <div v-for="activity in activities" :key="activity.title" class="flex items-start justify-between">
+          <div v-for="activity in activities" :key="activity.title" class="flex items-start justify-between gap-4">
             <p class="text-sm font-semibold text-slate-800">{{ activity.title }}</p>
             <span class="text-xs text-slate-500">{{ activity.time }}</span>
           </div>
         </div>
       </div>
-    </section>
+    </section> -->
   </div>
 </template>

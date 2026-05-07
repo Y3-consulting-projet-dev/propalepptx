@@ -1,10 +1,15 @@
 ﻿<script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { getTemplates } from '../api.js'
+import { getAuthHeaders, getTemplates, logout } from '../api.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-const router   = useRouter()
+const props = defineProps({
+  initialTemplateFilename: {
+    type: String,
+    default: '',
+  },
+})
+const emit = defineEmits(['back', 'open-editor'])
 
 // ─── Options (chargées dynamiquement depuis la BDD + fallback statique) ─────────
 const BASE_SECTORS = [
@@ -31,6 +36,18 @@ const BASE_COUNTRIES = [
 
 const sectorOptions  = ref([...BASE_SECTORS])
 const countryOptions = ref([...BASE_COUNTRIES])
+const partnerOptions = ref([])
+const managerOptions = ref([])
+
+function getReviewerLabel(item) {
+  return item?.name || item?.email || ''
+}
+
+function handleUnauthorized(message = 'Session expirée. Veuillez vous reconnecter.') {
+  logout()
+  alert(message)
+  window.location.reload()
+}
 
 async function loadMetaOptions() {
   try {
@@ -49,10 +66,28 @@ async function loadMetaOptions() {
   } catch { /* keep static fallback */ }
 }
 
+async function loadReviewerOptions() {
+  try {
+    const res = await fetch(`${API_BASE}/api/users/reviewers`, {
+      headers: getAuthHeaders(),
+    })
+    const data = await res.json()
+    if (res.status === 401) {
+      handleUnauthorized(data.error || data.msg || 'Session expirée. Veuillez vous reconnecter.')
+      return
+    }
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement des validateurs')
+    managerOptions.value = (data.managers || []).map(getReviewerLabel).filter(Boolean)
+    partnerOptions.value = (data.associates || []).map(getReviewerLabel).filter(Boolean)
+  } catch {
+    managerOptions.value = []
+    partnerOptions.value = []
+  }
+}
+
+
 const missionOptions   = ['Audit légal', 'IFRS 9', 'CAC']
 const standardsOptions = ['IFRS', 'SYSCOHADA', 'OHADA']
-const partnerOptions   = ['Geoges Yao Yao', 'Yves Dodo']
-const managerOptions   = ['Revite Oule', 'Ibrahim Kamissoko']
 const feesOptions      = ['1–5 M FCFA', '5–10 M FCFA', '10–15 M FCFA']
 
 // ─── Form ─────────────────────────────────────────────────────────────────────
@@ -119,6 +154,15 @@ const models         = ref([])
 const modelError     = ref('')
 const selectedModel  = ref(null)
 
+function applyInitialTemplateSelection() {
+  const targetFilename = String(props.initialTemplateFilename || '').trim()
+  if (!targetFilename || !models.value.length) return
+  const match = models.value.find((model) => model.filename === targetFilename)
+  if (match) {
+    selectedModel.value = match
+  }
+}
+
 // ─── Generation state ─────────────────────────────────────────────────────────
 const generating = ref(false)
 const genError   = ref('')
@@ -126,8 +170,8 @@ const genStep    = ref('')
 
 const STEPS = [
   'Lecture du modèle…',
-  'Analyse de la structure…',
-  'Génération du contenu par IA…',
+  'Analyse des placeholders…',
+  'Remplacement des variables…',
   'Injection dans le fichier PPTX…',
   'Création des aperçus…',
   'Presque terminé…',
@@ -136,6 +180,7 @@ const STEPS = [
 // ─── Load templates ───────────────────────────────────────────────────────────
 onMounted(async () => {
   await loadMetaOptions()
+  await loadReviewerOptions()
   try {
     const data = await getTemplates()
     models.value = (data.items || []).map((item, index) => ({
@@ -147,9 +192,14 @@ onMounted(async () => {
       error:     null,
       slideMode: null,
     }))
+    applyInitialTemplateSelection()
   } catch (err) {
     modelError.value = err.message
   }
+})
+
+watch(() => props.initialTemplateFilename, () => {
+  applyInitialTemplateSelection()
 })
 
 // ─── Lazy-load slide thumbnails ───────────────────────────────────────────────
@@ -207,7 +257,7 @@ async function generate() {
   try {
     const res  = await fetch(`${API_BASE}/api/generate`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body:    JSON.stringify({
         template_filename: selectedModel.value.filename,
         form: { ...form },
@@ -215,8 +265,12 @@ async function generate() {
     })
     const data = await res.json()
     clearInterval(stepTimer)
+    if (res.status === 401) {
+      handleUnauthorized(data.error || data.msg || 'Session expirée. Veuillez vous reconnecter.')
+      return
+    }
     if (!res.ok) { genError.value = data.error || 'Erreur lors de la génération'; return }
-    router.push({ name: 'editor', params: { id: data.presentation_id } })
+    emit('open-editor', data.presentation_id)
   } catch (e) {
     clearInterval(stepTimer)
     genError.value = 'Impossible de contacter le serveur : ' + e.message
@@ -226,7 +280,6 @@ async function generate() {
   }
 }
 
-defineEmits(['back'])
 </script>
 
 <template>
@@ -352,7 +405,7 @@ defineEmits(['back'])
       </label>
 
       <label class="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-        Associé responsable de la mission
+        Associé(s) responsable(s) de la mission
         <select v-model="form.partner"
           class="rounded-xl border border-brand-200 bg-white px-4 py-3 text-sm text-slate-700 focus:border-brand-500 focus:outline-none">
           <option disabled value="">Choisir</option>
@@ -411,10 +464,10 @@ defineEmits(['back'])
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          Générer la présentation
+          Créer la présentation
         </template>
       </button>
-      <p v-if="generating" class="text-xs text-slate-400">L'IA génère le contenu… cela peut prendre 20-40 secondes.</p>
+      <p v-if="generating" class="text-xs text-slate-400">Les placeholders du modèle sont en cours de remplacement.</p>
     </div>
 
     <!-- ── Model chooser modal ── -->
@@ -490,13 +543,13 @@ defineEmits(['back'])
             </div>
           </div>
           <div>
-            <p class="text-base font-semibold text-slate-900">Génération en cours</p>
+            <p class="text-base font-semibold text-slate-900">Création en cours</p>
             <p class="mt-2 text-sm text-slate-500">{{ genStep }}</p>
           </div>
           <div class="flex gap-1.5">
             <span v-for="n in 5" :key="n" class="h-1.5 w-1.5 rounded-full bg-brand-300 animate-pulse" :style="`animation-delay:${n * 0.15}s`"></span>
           </div>
-          <p class="text-xs text-slate-400">L'IA rédige le contenu pour <strong>{{ form.clientName }}</strong></p>
+          <p class="text-xs text-slate-400">Le modèle est personnalisé pour <strong>{{ form.clientName }}</strong></p>
         </div>
       </div>
     </Teleport>

@@ -62,16 +62,12 @@ const displayName = computed(() => safe(`${draft.value.first_name} ${draft.value
 const displayEmail = computed(() => safe(draft.value.email))
 
 const baseGradeOptions = [
-  'Pré-emploi',
-  'Assistant 1',
-  'Assistant 2',
-  'Senior 1',
-  'Senior 2',
+  'Assistant',
+  'Senior',
   'Assistant manager',
-  'Manager 1',
-  'Manager 2',
-  'Manager 3',
-  'Senior Manager',
+  'Manager',
+  'Senior manager',
+  'Associé',
 ]
 
 const baseDepartmentOptions = [

@@ -37,6 +37,11 @@ class User:
         return User.collection.find_one({'email': email})
 
     @staticmethod
+    def find_by_id(user_id):
+        from bson import ObjectId
+        return User.collection.find_one({'_id': ObjectId(user_id)})
+
+    @staticmethod
     def verify_password(stored_password, provided_password):
         return bcrypt.checkpw(provided_password.encode('utf-8'), stored_password)
 

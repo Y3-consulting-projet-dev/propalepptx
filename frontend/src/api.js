@@ -1,7 +1,8 @@
 const API_BASE = '/api'
+export const APP_NAVIGATION_STORAGE_KEY = 'app_navigation_state'
 
 // Helper function to get auth headers
-const getAuthHeaders = () => {
+export const getAuthHeaders = () => {
   const token = localStorage.getItem('access_token')
   return token ? { 'Authorization': `Bearer ${token}` } : {}
 }
@@ -153,6 +154,7 @@ export function logout() {
   localStorage.removeItem('access_token')
   localStorage.removeItem('user')
   localStorage.removeItem('session_started_at')
+  localStorage.removeItem(APP_NAVIGATION_STORAGE_KEY)
 }
 
 export function isLoggedIn() {
@@ -167,6 +169,67 @@ export function getCurrentUser() {
   } catch {
     return null
   }
+}
+
+export async function getNotifications() {
+  const res = await fetch(`${API_BASE}/notifications`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error || 'Notifications load failed')
+  }
+
+  return res.json()
+}
+
+export async function markNotificationsRead(presentationId = null) {
+  const res = await fetch(`${API_BASE}/notifications/read`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(presentationId ? { presentation_id: presentationId } : {}),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error || 'Notification update failed')
+  }
+
+  return res.json()
+}
+
+export async function sendSessionHeartbeat() {
+  const res = await fetch(`${API_BASE}/session/heartbeat`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error || 'Heartbeat failed')
+  }
+
+  return res.json()
+}
+
+export async function getDashboardSummary(query = '') {
+  const params = new URLSearchParams()
+  if (query) params.set('q', query)
+
+  const res = await fetch(`${API_BASE}/dashboard/summary${params.toString() ? `?${params.toString()}` : ''}`, {
+    headers: getAuthHeaders(),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error || 'Dashboard summary failed')
+  }
+
+  return res.json()
 }
 
 export async function changePassword(old_password, new_password) {
