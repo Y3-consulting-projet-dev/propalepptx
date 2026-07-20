@@ -285,7 +285,7 @@ async function generate() {
 <template>
   <section>
     <!-- ── Header ── -->
-    <header class="flex items-start justify-between">
+    <header class="flex flex-wrap items-start justify-between gap-4">
       <p class="text-2xl font-semibold text-brand-600">Générer une nouvelle présentation</p>
       <div class="flex items-center gap-3">
         <button class="h-10 w-10 rounded-full border border-slate-200 bg-white text-slate-600">🔔</button>

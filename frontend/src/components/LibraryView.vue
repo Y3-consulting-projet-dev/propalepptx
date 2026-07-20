@@ -239,9 +239,9 @@ function filteredCards() {
     </Teleport>
 
     <!-- ── Header ── -->
-    <header class="flex items-start justify-between">
+    <header class="flex flex-wrap items-start justify-between gap-4">
       <p class="text-3xl font-semibold text-brand-600">Mes modèles</p>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
 
         <!-- Import button -->
         <button

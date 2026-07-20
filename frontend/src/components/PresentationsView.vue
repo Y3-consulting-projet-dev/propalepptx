@@ -87,7 +87,7 @@ onMounted(loadPresentations)
 
 <template>
   <section>
-    <header class="flex items-start justify-between">
+    <header class="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p class="text-3xl font-semibold text-brand-600">Mes présentations</p>
         <p class="mt-2 text-sm text-slate-500">Retrouvez ici toutes les présentations générées depuis vos modèles.</p>
@@ -102,7 +102,7 @@ onMounted(loadPresentations)
       </div>
     </header>
 
-    <div class="mt-10 flex items-center justify-center gap-4">
+    <div class="mt-10 flex flex-wrap items-center justify-center gap-4">
       <button
         v-for="item in filters"
         :key="item"
@@ -115,64 +115,68 @@ onMounted(loadPresentations)
     </div>
 
     <section class="mt-10 card overflow-hidden">
-      <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] bg-slate-900 px-6 py-3 text-sm font-semibold text-white">
-        <span>Présentation</span>
-        <span>Type</span>
-        <span>Client</span>
-        <span>Statut</span>
-        <span>Date</span>
-        <span>Slides</span>
-        <span class="text-right">Action</span>
-      </div>
-
-      <div v-if="loading" class="space-y-3 bg-white px-6 py-6">
-        <div v-for="n in 5" :key="n" class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
-      </div>
-
-      <div v-else-if="error" class="bg-white px-6 py-8 text-sm text-red-600">
-        {{ error }}
-      </div>
-
-      <div v-else-if="!filteredPresentations.length" class="bg-white px-6 py-10 text-center">
-        <p class="text-sm font-semibold text-slate-700">Aucune présentation trouvée</p>
-        <p class="mt-2 text-sm text-slate-400">Générez votre première présentation pour la voir apparaître ici.</p>
-      </div>
-
-      <div v-else class="divide-y divide-slate-100">
-        <div
-          v-for="row in filteredPresentations"
-          :key="row.presentation_id"
-          class="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] items-center bg-white px-6 py-4 text-sm transition hover:bg-brand-50/50"
-        >
-          <div class="min-w-0">
-            <p class="truncate font-semibold text-slate-900">
-              {{ formatPresentationTitle(row) }}
-            </p>
-            <p class="mt-1 truncate text-xs text-slate-400">{{ row.template || '-' }}</p>
+      <div class="overflow-x-auto">
+        <div class="min-w-[860px]">
+          <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] bg-slate-900 px-6 py-3 text-sm font-semibold text-white">
+            <span>Présentation</span>
+            <span>Type</span>
+            <span>Client</span>
+            <span>Statut</span>
+            <span>Date</span>
+            <span>Slides</span>
+            <span class="text-right">Action</span>
           </div>
 
-          <span class="font-semibold text-slate-700">{{ row.form?.missionType || '-' }}</span>
-          <span class="font-semibold text-slate-900">{{ row.form?.clientName || '-' }}</span>
+          <div v-if="loading" class="space-y-3 bg-white px-6 py-6">
+            <div v-for="n in 5" :key="n" class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
+          </div>
 
-          <span>
-            <span
-              class="rounded-full px-3 py-1 text-xs font-semibold"
-              :class="normalizeStatus(row.status).classes"
+          <div v-else-if="error" class="bg-white px-6 py-8 text-sm text-red-600">
+            {{ error }}
+          </div>
+
+          <div v-else-if="!filteredPresentations.length" class="bg-white px-6 py-10 text-center">
+            <p class="text-sm font-semibold text-slate-700">Aucune présentation trouvée</p>
+            <p class="mt-2 text-sm text-slate-400">Générez votre première présentation pour la voir apparaître ici.</p>
+          </div>
+
+          <div v-else class="divide-y divide-slate-100">
+            <div
+              v-for="row in filteredPresentations"
+              :key="row.presentation_id"
+              class="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] items-center bg-white px-6 py-4 text-sm transition hover:bg-brand-50/50"
             >
-              {{ normalizeStatus(row.status).label }}
-            </span>
-          </span>
+              <div class="min-w-0">
+                <p class="truncate font-semibold text-slate-900">
+                  {{ formatPresentationTitle(row) }}
+                </p>
+                <p class="mt-1 truncate text-xs text-slate-400">{{ row.template || '-' }}</p>
+              </div>
 
-          <span class="text-slate-600">{{ formatDate(row.updated_at || row.created_at) }}</span>
-          <span class="text-slate-600">{{ row.slide_count || 0 }}</span>
+              <span class="font-semibold text-slate-700">{{ row.form?.missionType || '-' }}</span>
+              <span class="font-semibold text-slate-900">{{ row.form?.clientName || '-' }}</span>
 
-          <div class="text-right">
-            <button
-              class="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-              @click="emit('open-editor', row.presentation_id)"
-            >
-              Ouvrir
-            </button>
+              <span>
+                <span
+                  class="rounded-full px-3 py-1 text-xs font-semibold"
+                  :class="normalizeStatus(row.status).classes"
+                >
+                  {{ normalizeStatus(row.status).label }}
+                </span>
+              </span>
+
+              <span class="text-slate-600">{{ formatDate(row.updated_at || row.created_at) }}</span>
+              <span class="text-slate-600">{{ row.slide_count || 0 }}</span>
+
+              <div class="text-right">
+                <button
+                  class="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+                  @click="emit('open-editor', row.presentation_id)"
+                >
+                  Ouvrir
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

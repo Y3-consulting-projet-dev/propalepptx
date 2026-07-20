@@ -235,7 +235,7 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
   <section>
 
     <!-- ── Header ── -->
-    <header class="flex items-start justify-between">
+    <header class="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p class="text-3xl font-semibold text-brand-600">Espace clients</p>
         <p class="mt-1 text-sm text-slate-500">{{ total }} client{{ total > 1 ? 's' : '' }} au total</p>
@@ -282,46 +282,48 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
         <p class="text-sm font-medium">Aucun client trouvé</p>
         <button class="text-xs text-brand-500 underline" @click="openCreate">Créer le premier client</button>
       </div>
-      <table v-else class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-slate-100 bg-slate-50">
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">#</th>
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Nom de l'entreprise</th>
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Responsable</th>
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Secteur d'activité</th>
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Pays</th>
-            <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">RCCM</th>
-            <th class="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-50">
-          <tr
-            v-for="(client, i) in clients" :key="client._id"
-            class="group cursor-pointer transition hover:bg-brand-50/40"
-            @click="openView(client)"
-          >
-            <td class="px-5 py-4 text-xs text-slate-400">{{ rowStart + i }}</td>
-            <td class="px-5 py-4 font-semibold text-slate-900">{{ client.company_name }}</td>
-            <td class="px-5 py-4 text-slate-600">
-              {{ [client.civility, client.responsable_name].filter(Boolean).join(' ') || '—' }}
-            </td>
-            <td class="px-5 py-4">
-              <span v-if="client.sector" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                {{ client.sector }}
-              </span>
-              <span v-else class="text-slate-300">—</span>
-            </td>
-            <td class="px-5 py-4 text-slate-600">{{ client.country || '—' }}</td>
-            <td class="px-5 py-4 text-xs text-slate-500">{{ client.RCCM || '—' }}</td>
-            <td class="px-5 py-4 text-right" @click.stop>
-              <button
-                class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 opacity-0 transition group-hover:opacity-100 hover:border-brand-400 hover:text-brand-600"
-                @click="openView(client)"
-              >Voir</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="overflow-x-auto">
+        <table class="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr class="border-b border-slate-100 bg-slate-50">
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">#</th>
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Nom de l'entreprise</th>
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Responsable</th>
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Secteur d'activité</th>
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Pays</th>
+              <th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">RCCM</th>
+              <th class="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            <tr
+              v-for="(client, i) in clients" :key="client._id"
+              class="group cursor-pointer transition hover:bg-brand-50/40"
+              @click="openView(client)"
+            >
+              <td class="px-5 py-4 text-xs text-slate-400">{{ rowStart + i }}</td>
+              <td class="px-5 py-4 font-semibold text-slate-900">{{ client.company_name }}</td>
+              <td class="px-5 py-4 text-slate-600">
+                {{ [client.civility, client.responsable_name].filter(Boolean).join(' ') || '—' }}
+              </td>
+              <td class="px-5 py-4">
+                <span v-if="client.sector" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                  {{ client.sector }}
+                </span>
+                <span v-else class="text-slate-300">—</span>
+              </td>
+              <td class="px-5 py-4 text-slate-600">{{ client.country || '—' }}</td>
+              <td class="px-5 py-4 text-xs text-slate-500">{{ client.RCCM || '—' }}</td>
+              <td class="px-5 py-4 text-right" @click.stop>
+                <button
+                  class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 opacity-0 transition group-hover:opacity-100 hover:border-brand-400 hover:text-brand-600"
+                  @click="openView(client)"
+                >Voir</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ── Pagination ── -->
@@ -348,9 +350,9 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
             <button class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50" @click="showCreate = false">✕</button>
           </div>
           <div class="overflow-y-auto px-6 py-5">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-              <label class="col-span-2 flex flex-col gap-1.5 text-xs font-semibold text-slate-600">
+              <label class="flex flex-col gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-2">
                 Nom de l'entreprise *
                 <input v-model="createForm.company_name" type="text" placeholder="Ex : NSIA Bank"
                   class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:border-brand-500 focus:outline-none focus:bg-white" />
@@ -408,7 +410,7 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
                 </datalist>
               </label>
 
-              <label class="col-span-2 flex flex-col gap-1.5 text-xs font-semibold text-slate-600">
+              <label class="flex flex-col gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-2">
                 Adresse
                 <input v-model="createForm.address" type="text" placeholder="Cocody, Abidjan"
                   class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:border-brand-500 focus:outline-none focus:bg-white" />
@@ -482,9 +484,9 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
 
           <!-- Fields -->
           <div class="overflow-y-auto px-6 py-5">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-              <label class="col-span-2 flex flex-col gap-1.5 text-xs font-semibold text-slate-600">
+              <label class="flex flex-col gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-2">
                 Nom de l'entreprise *
                 <input v-model="editForm.company_name" type="text" :disabled="!isEditMode"
                   class="rounded-xl border bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none transition"
@@ -559,7 +561,7 @@ const rowEnd   = computed(() => Math.min(page.value * limit, total.value))
                   class="rounded-xl border border-transparent bg-slate-50 px-4 py-2.5 text-sm text-slate-800 cursor-default" />
               </label>
 
-              <label class="col-span-2 flex flex-col gap-1.5 text-xs font-semibold text-slate-600">
+              <label class="flex flex-col gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-2">
                 Adresse
                 <input v-model="editForm.address" type="text" :disabled="!isEditMode"
                   class="rounded-xl border bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none transition"

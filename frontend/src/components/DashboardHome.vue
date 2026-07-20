@@ -77,9 +77,9 @@ watch(searchQuery, loadSummary)
 
 <template>
   <div>
-    <header class="flex items-center justify-between">
+    <header class="flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-3">
-        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+        <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
           {{ initials(props.user) }}
         </div>
         <div>
@@ -87,7 +87,7 @@ watch(searchQuery, loadSummary)
           <p class="text-xs text-slate-500">{{ props.user?.grade }}</p>
         </div>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <button class="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
           En ligne : {{ activeUsersLabel }}
         </button>
@@ -101,11 +101,11 @@ watch(searchQuery, loadSummary)
     </header>
 
     <div class="mt-6 flex items-center justify-end">
-      <div class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+      <div class="flex w-full items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500 sm:w-auto">
         <input
           v-model="searchQuery"
           type="text"
-          class="w-64 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          class="w-full min-w-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 sm:w-64"
           placeholder="Rechercher une présentation ou un client"
         />
         <span class="text-slate-400">⌕</span>
@@ -124,46 +124,50 @@ watch(searchQuery, loadSummary)
         </div>
       </div>
 
-      <div class="grid grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] table-head px-6 py-3 text-sm font-semibold">
-        <span>Présentation</span>
-        <span>Client</span>
-        <span>Statut</span>
-        <span>Date</span>
-      </div>
-
-      <div v-if="loading" class="space-y-3 px-6 py-6">
-        <div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
-      </div>
-
-      <div v-else-if="loadError" class="px-6 py-6 text-sm text-red-600">
-        {{ loadError }}
-      </div>
-
-      <div v-else-if="!recentPresentations.length" class="px-6 py-8 text-sm text-slate-400">
-        {{ searchQuery.trim() ? 'Aucune présentation trouvée pour cette recherche.' : 'Aucune présentation récente disponible.' }}
-      </div>
-
-      <div v-else class="divide-y divide-slate-100">
-        <button
-          v-for="presentation in recentPresentations"
-          :key="presentation.presentation_id"
-          type="button"
-          class="grid w-full grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] items-center px-6 py-4 text-left text-sm transition hover:bg-brand-50/50"
-          @click="emit('open-editor', presentation.presentation_id)"
-        >
-          <div class="min-w-0">
-            <p class="truncate font-semibold text-slate-900">{{ presentation.title }}</p>
-            <p class="mt-1 truncate text-xs text-slate-400">
-              {{ presentation.mission_type || '-' }} · {{ presentation.owner_name || 'Utilisateur' }}
-            </p>
+      <div class="overflow-x-auto">
+        <div class="min-w-[640px]">
+          <div class="grid grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] table-head px-6 py-3 text-sm font-semibold">
+            <span>Présentation</span>
+            <span>Client</span>
+            <span>Statut</span>
+            <span>Date</span>
           </div>
-          <span class="font-medium text-slate-600">{{ presentation.client_name || '-' }}</span>
-          <div class="flex items-center gap-3">
-            <span class="text-slate-700">{{ normalizeStatus(presentation.status).label }}</span>
-            <span :class="['h-3 w-3 rounded-full', normalizeStatus(presentation.status).dot]"></span>
+
+          <div v-if="loading" class="space-y-3 px-6 py-6">
+            <div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
           </div>
-          <span class="text-slate-500">{{ formatDate(presentation.created_at || presentation.updated_at) }}</span>
-        </button>
+
+          <div v-else-if="loadError" class="px-6 py-6 text-sm text-red-600">
+            {{ loadError }}
+          </div>
+
+          <div v-else-if="!recentPresentations.length" class="px-6 py-8 text-sm text-slate-400">
+            {{ searchQuery.trim() ? 'Aucune présentation trouvée pour cette recherche.' : 'Aucune présentation récente disponible.' }}
+          </div>
+
+          <div v-else class="divide-y divide-slate-100">
+            <button
+              v-for="presentation in recentPresentations"
+              :key="presentation.presentation_id"
+              type="button"
+              class="grid w-full grid-cols-[1.6fr_0.8fr_0.9fr_0.7fr] items-center px-6 py-4 text-left text-sm transition hover:bg-brand-50/50"
+              @click="emit('open-editor', presentation.presentation_id)"
+            >
+              <div class="min-w-0">
+                <p class="truncate font-semibold text-slate-900">{{ presentation.title }}</p>
+                <p class="mt-1 truncate text-xs text-slate-400">
+                  {{ presentation.mission_type || '-' }} · {{ presentation.owner_name || 'Utilisateur' }}
+                </p>
+              </div>
+              <span class="font-medium text-slate-600">{{ presentation.client_name || '-' }}</span>
+              <div class="flex items-center gap-3">
+                <span class="text-slate-700">{{ normalizeStatus(presentation.status).label }}</span>
+                <span :class="['h-3 w-3 rounded-full', normalizeStatus(presentation.status).dot]"></span>
+              </div>
+              <span class="text-slate-500">{{ formatDate(presentation.created_at || presentation.updated_at) }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 

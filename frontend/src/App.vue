@@ -24,6 +24,7 @@ const notifications = ref([])
 const unreadNotifications = ref(0)
 const showNotifications = ref(false)
 const showNotificationsModal = ref(false)
+const sidebarOpen = ref(false)
 let notificationsTimer = null
 let heartbeatTimer = null
 
@@ -153,24 +154,28 @@ const handleStorage = (e) => {
 
 function goToSection(key) {
   activeSection.value = key
+  sidebarOpen.value = false
 }
 
 function openNewPresentation() {
   selectedTemplateFilename.value = null
   lastSection.value = activeSection.value
   activeSection.value = 'new-presentation'
+  sidebarOpen.value = false
 }
 
 function useTemplateFromLibrary(templateFilename) {
   selectedTemplateFilename.value = templateFilename
   lastSection.value = activeSection.value
   activeSection.value = 'new-presentation'
+  sidebarOpen.value = false
 }
 
 function openPresentationEditor(presentationId) {
   selectedPresentationId.value = presentationId
   lastSection.value = activeSection.value
   activeSection.value = 'presentation-editor'
+  sidebarOpen.value = false
 }
 
 function goBack() {
@@ -252,10 +257,28 @@ watch(isAuthenticated, (value) => {
   <Login v-if="!isAuthenticated" @login="handleLogin" />
 
   <div v-else class="min-h-screen bg-slate-25">
-    <div class="grid min-h-screen grid-cols-[260px_1fr] bg-white">
-      <aside class="relative flex flex-col gap-10 border-r border-slate-200/70 px-6 py-8 pt-44">
+    <div class="flex min-h-screen bg-white lg:grid lg:grid-cols-[260px_1fr]">
+      <!-- Mobile overlay behind the drawer -->
+      <div
+        v-if="sidebarOpen"
+        class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden"
+        @click="sidebarOpen = false"
+      ></div>
+
+      <aside
+        class="fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] transform flex-col gap-8 overflow-y-auto border-r border-slate-200/70 bg-white px-6 py-8 pt-24 transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:gap-10 lg:pt-44"
+        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+      >
+        <button
+          type="button"
+          class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 lg:hidden"
+          @click="sidebarOpen = false"
+        >
+          ✕
+        </button>
+
         <div class="absolute left-0 top-0 flex items-center gap-3">
-          <img src="/logo.png" alt="Logo" class="h-40" />
+          <img src="/logo.png" alt="Logo" class="h-20 lg:h-40" />
         </div>
 
         <div class="relative">
@@ -332,18 +355,33 @@ watch(isAuthenticated, (value) => {
         </button>
       </aside>
 
-      <main class="bg-slate-25 px-10 py-8">
-        <component
-          :is="activeComponent.component ?? activeComponent"
-          v-bind="activeComponent.props ?? {}"
-          :user="currentUser"
-          @new-presentation="openNewPresentation"
-          @open-editor="openPresentationEditor"
-          @use-template="useTemplateFromLibrary"
-          @logout="handleLogout"
-          @back="goBack"
-        />
-      </main>
+      <div class="flex min-w-0 flex-1 flex-col">
+        <!-- Mobile top bar -->
+        <header class="flex items-center justify-between border-b border-slate-200/70 bg-white px-4 py-3 lg:hidden">
+          <button
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600"
+            @click="sidebarOpen = true"
+          >
+            ☰
+          </button>
+          <img src="/logo.png" alt="Logo" class="h-8" />
+          <div class="h-9 w-9"></div>
+        </header>
+
+        <main class="flex-1 bg-slate-25 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+          <component
+            :is="activeComponent.component ?? activeComponent"
+            v-bind="activeComponent.props ?? {}"
+            :user="currentUser"
+            @new-presentation="openNewPresentation"
+            @open-editor="openPresentationEditor"
+            @use-template="useTemplateFromLibrary"
+            @logout="handleLogout"
+            @back="goBack"
+          />
+        </main>
+      </div>
     </div>
 
     <Teleport to="body">

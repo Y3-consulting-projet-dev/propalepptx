@@ -349,17 +349,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
     </div>
 
     <!-- Top bar -->
-    <header class="flex h-12 flex-shrink-0 items-center justify-between bg-brand-500 px-4 shadow">
+    <header class="flex min-h-[3rem] flex-shrink-0 flex-wrap items-center justify-between gap-2 bg-brand-500 px-4 py-2 shadow">
 
       <!-- Left: back + menu -->
-      <div class="flex items-center gap-6">
+      <div class="flex items-center gap-3 sm:gap-6">
         <button
           class="flex items-center gap-1.5 text-xs font-semibold text-white/80 hover:text-white"
           @click="emit('back')"
         >
           <span class="text-base">←</span> Retour
         </button>
-        <nav class="hidden items-center gap-5 sm:flex">
+        <nav class="hidden items-center gap-5 lg:flex">
           <button v-for="item in ['Fichier','Édition','Insertion','Placeholders']" :key="item"
                   class="text-xs font-semibold text-white/90 hover:text-white">
             {{ item }}
@@ -368,7 +368,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <!-- Center: filename -->
-      <div class="hidden items-center gap-2 sm:flex max-w-xl min-w-0">
+      <div class="hidden items-center gap-2 md:flex max-w-xl min-w-0">
         <input
           v-model="renameDraft"
           type="text"
@@ -386,7 +386,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <!-- Right: actions -->
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <!-- Download -->
         <button
           class="flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
@@ -396,7 +396,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          {{ downloading ? 'Exporter' : 'Télécharger' }}
+          <span class="hidden sm:inline">{{ downloading ? 'Exporter' : 'Télécharger' }}</span>
         </button>
 
         <!-- Submit -->
@@ -430,7 +430,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
     <div class="flex flex-1 overflow-hidden">
 
       <!-- Filmstrip (left sidebar) -->
-      <aside class="flex w-44 flex-shrink-0 flex-col gap-0 overflow-y-auto border-r border-slate-200 bg-white py-3">
+      <aside class="flex w-24 flex-shrink-0 flex-col gap-0 overflow-y-auto border-r border-slate-200 bg-white py-3 sm:w-44">
         <template v-if="slidesLoading">
           <div v-for="n in 6" :key="n"
                class="mx-3 mb-3 animate-pulse rounded bg-slate-200"
@@ -480,7 +480,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </aside>
 
       <!-- Central view -->
-      <main class="flex flex-1 flex-col items-center justify-center overflow-auto bg-slate-200 p-6 gap-4">
+      <main class="flex flex-1 flex-col items-center justify-center overflow-auto bg-slate-200 p-3 gap-4 sm:p-6">
 
         <!-- Error state -->
         <div v-if="error" class="rounded-xl bg-white p-8 text-center shadow">
@@ -491,7 +491,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
         <!-- Loading state -->
         <div v-else-if="slidesLoading" class="flex flex-col items-center gap-3">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-brand-500"></div>
-          <p class="text-sm text-slate-500">Chargement des slideser</p>
+          <p class="text-sm text-slate-500">Chargement des slides</p>
         </div>
 
         <!-- Slide view -->
@@ -579,7 +579,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
                 :disabled="saving"
                 @click="saveEdits"
               >
-                {{ saving ? 'Sauvegardeer' : 'Enregistrer' }}
+                {{ saving ? 'Sauvegarder' : 'Enregistrer' }}
               </button>
               <button
                 class="rounded-lg bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow hover:bg-slate-50"
@@ -679,8 +679,3 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
   </div>
 </template>
-
-
-
-
-
