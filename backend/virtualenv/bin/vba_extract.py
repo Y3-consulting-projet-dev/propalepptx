@@ -1,4 +1,4 @@
-#!/mnt/c/DEV/Y3_audits_et_conseils/Projet_Automatisation_Propale/propalepptx/backend/virtualenv/bin/python3
+#!/mnt/d/DEV/Projet Propale_PPTX/propalepptx/backend/virtualenv/bin/python3
 
 ##############################################################################
 #

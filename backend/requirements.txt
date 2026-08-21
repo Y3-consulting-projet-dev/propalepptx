@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 flask-jwt-extended==4.6.0
 bcrypt==4.1.2
 openpyxl==3.1.5
+anthropic
